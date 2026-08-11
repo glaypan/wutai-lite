@@ -139,6 +139,7 @@ function normalizeConfig(raw) {
     oscEnabled: raw.oscEnabled !== false,
     oscAllowLan: raw.oscAllowLan === true,
     roleTokens: raw.roleTokens && typeof raw.roleTokens === "object" ? raw.roleTokens : {},
+    unlockCode: typeof raw.unlockCode === "string" ? raw.unlockCode : "",
     displayToken: isToken(raw.displayToken) ? raw.displayToken : randomToken(),
     passwordHashes: raw.passwordHashes && typeof raw.passwordHashes === "object" ? raw.passwordHashes : {},
     rolePermissions: normalizeRolePermissions(raw.rolePermissions),

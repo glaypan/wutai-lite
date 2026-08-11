@@ -3398,6 +3398,25 @@ dgram.createSocket("udp4").send(buf, 5300, "127.0.0.1");</pre>
   </div>
 
   <!-- 项目中心 (控制端) -->
+  <div id="modal-unlock" class="modal hidden">
+    <div class="modal-box modal-unlock-box">
+      <div class="modal-header-row"><h3>🔓 解锁完整版</h3><button class="icon-btn" type="button" onclick="closeModal('modal-unlock')" title="关闭" aria-label="关闭">✕</button></div>
+      <div class="modal-scroll-body">
+        <p class="unlock-desc" style="margin:8px 0 12px;color:var(--text-2,#8e8e93);font-size:13px;line-height:1.6">
+          当前为<b>精简免费版</b>（控制端 + 助理端 + 节目单 + GO/重置）。<br>
+          输入完整版解锁码，解锁后获得：<b>Tally 角色提示、字幕屏、提示屏、字幕/提示屏控制端、OSC/MIDI、时间轴 Cue、项目中心、模板库</b> 等全部功能。
+        </p>
+        <div class="unlock-form" style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="unlock-code-input" class="text-input" placeholder="请输入解锁码" style="flex:1;min-width:0" autocomplete="off">
+          <button class="btn btn-primary" type="button" id="unlock-submit-btn" onclick="submitUnlockCode()">解锁</button>
+        </div>
+        <div id="unlock-msg" style="margin-top:10px;font-size:13px;min-height:18px"></div>
+        <div class="unlock-hint" style="margin-top:14px;padding:10px 12px;background:rgba(52,199,89,.08);border-radius:8px;font-size:12px;color:var(--text-2,#8e8e93);line-height:1.7">
+          💡 <b>解锁码在哪拿？</b> 完整版解锁码随 <b>wutai-pro</b>（商业版）一起提供，联系作者获取。解锁后本浏览器自动记住（localStorage），换浏览器/清除缓存需重新解锁。
+        </div>
+      </div>
+    </div>
+  </div>
   <div id="modal-project-center" class="modal hidden">
     <div class="modal-box modal-wide project-center-modal">
       <div class="modal-header-row"><h3>📁 项目中心</h3><button class="icon-btn" type="button" onclick="closeModal('modal-project-center')" title="关闭项目中心" aria-label="关闭项目中心">✕</button></div>
@@ -5051,6 +5070,7 @@ function closeModeApprovalModal() {
 window.openGlobalSetting = function() {
   var modal = document.getElementById('modal-global-setting');
   modal.classList.remove('hidden');
+  ensureUnlockEntry();  // v6.7.0 精简版: 未解锁时顶部显示解锁入口
   renderGlobalChannelEditor();
   refreshChannelTypeControls('mics');
   refreshChannelTypeControls('lines');
@@ -5716,6 +5736,70 @@ var ROLE_ICONS = {
   console: '🎚️',
   screen: '🖥️'
 };
+// ---------- v6.7.0 精简版: 解锁完整版 ----------
+function isUnlocked() {
+  try { return localStorage.getItem('stage-manager-unlocked') === '1'; } catch (e) { return false; }
+}
+function openUnlockModal() {
+  var m = document.getElementById('modal-unlock');
+  if (!m) return;
+  m.classList.remove('hidden');
+  m.style.display = 'flex';
+  var input = document.getElementById('unlock-code-input');
+  if (input) { input.value = ''; input.focus(); }
+  var msg = document.getElementById('unlock-msg');
+  if (msg) { msg.textContent = ''; msg.style.color = ''; }
+}
+function submitUnlockCode() {
+  var input = document.getElementById('unlock-code-input');
+  var msg = document.getElementById('unlock-msg');
+  var code = input ? input.value.trim() : '';
+  if (!code) { if (msg) { msg.textContent = '请输入解锁码'; msg.style.color = '#ff3b30'; } return; }
+  var btn = document.getElementById('unlock-submit-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '验证中…'; }
+  fetch('/api/unlock', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: code })
+  }).then(function(r) { return r.json().catch(function(){ return { ok:false, error:'bad_response' }; }).then(function(d){ return { status:r.status, data:d }; }); })
+    .then(function(res) {
+      if (res.data && res.data.ok && res.data.unlocked) {
+        try { localStorage.setItem('stage-manager-unlocked', '1'); } catch (e) {}
+        if (msg) { msg.textContent = '✅ 解锁成功！正在刷新…'; msg.style.color = '#34c759'; }
+        setTimeout(function() { location.reload(); }, 600);
+      } else {
+        if (msg) {
+          if (res.status === 403) { msg.textContent = '该版本未启用解锁功能（服务端未配置解锁码）'; }
+          else if (res.status === 401) { msg.textContent = '❌ 解锁码错误，请重试'; }
+          else { msg.textContent = '解锁失败，请稍后重试'; }
+          msg.style.color = '#ff3b30';
+        }
+      }
+    })
+    .catch(function() {
+      if (msg) { msg.textContent = '❌ 网络错误，无法连接服务器'; msg.style.color = '#ff3b30'; }
+    })
+    .finally(function() {
+      if (btn) { btn.disabled = false; btn.textContent = '解锁'; }
+    });
+}
+function ensureUnlockEntry() {
+  // 未解锁时在全局设置弹窗顶部插入「解锁完整版」入口按钮
+  var unlocked = isUnlocked();
+  var existing = document.getElementById('unlock-entry-btn');
+  if (unlocked) { if (existing) existing.style.display = 'none'; return; }
+  var gsBody = document.querySelector('#modal-global-setting .modal-scroll-body');
+  if (!gsBody) return;
+  if (!existing) {
+    var wrap = document.createElement('div');
+    wrap.id = 'unlock-entry-wrap';
+    wrap.style.cssText = 'padding:10px 12px;margin:0 0 10px;background:linear-gradient(135deg,rgba(255,149,0,.12),rgba(255,59,48,.08));border:1px solid rgba(255,149,0,.35);border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:10px';
+    wrap.innerHTML = '<span style="font-size:13px;line-height:1.5">🔓 <b>精简版</b> — 解锁码激活完整功能<br><span style="font-size:11px;opacity:.8">Tally / 字幕屏 / 提示屏 / OSC / Cue 等</span></span><button id="unlock-entry-btn" class="btn btn-primary" type="button" onclick="openUnlockModal()" style="white-space:nowrap">解锁完整版</button>';
+    gsBody.insertBefore(wrap, gsBody.firstChild);
+  } else {
+    existing.style.display = '';
+  }
+}
 function applyRoleVisibility() {
   // v6.7.0 精简版: LITE 模式（未解锁）隐藏 Tally/字幕/提示屏/OSC/MIDI/时间轴/项目中心入口
   // 解锁后（localStorage stage-manager-unlocked === '1'）显示完整功能

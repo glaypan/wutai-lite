@@ -1,0 +1,16 @@
+**/node_modules/
+**/.runtime/
+**/*.log
+**/*.tmp
+**/exports/
+**/config.json
+**/config.json.bak
+**/show.json
+**/show.json.bak
+**/*.zip
+**/media/
+.superpowers/
+.trae/
+projects/
+tess/
+.DS_Store

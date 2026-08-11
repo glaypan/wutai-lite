@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>舞台流程表 v6.3 项目中心 · 设计预览</title>
+<style>
+:root {
+  --bg-base: #0b0d10;
+  --bg-elev: #15181d;
+  --bg-elev-2: #1d2128;
+  --stroke: rgba(255,255,255,0.09);
+  --text-1: #f2f2f7;
+  --text-2: #98989f;
+  --text-3: #63636b;
+  --primary: #0a84ff;
+  --primary-dim: rgba(10,132,255,0.15);
+  --green: #30d158;
+  --red: #ff453a;
+  --orange: #ff9f0a;
+  --purple: #bf5af2;
+  --radius: 10px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif; background: var(--bg-base); color: var(--text-1); min-height:100vh; }
+/* 顶栏 */
+.header { display:flex; align-items:center; justify-content:space-between; padding: 18px 28px; border-bottom:1px solid var(--stroke); background: rgba(13,15,18,0.85); backdrop-filter: blur(20px); position: sticky; top:0; z-index:10; }
+.header .logo { display:flex; align-items:center; gap:12px; }
+.header .logo .mark { width:36px; height:36px; border-radius:9px; background: linear-gradient(135deg,#0a84ff,#5e5ce6); display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:700; color:#fff; }
+.header .logo h1 { font-size:18px; font-weight:700; letter-spacing:0.5px; }
+.header .logo .sub { font-size:11px; color:var(--text-3); font-weight:400; }
+.header .actions { display:flex; gap:10px; }
+.btn { padding:9px 16px; border-radius:var(--radius); border:none; font-size:13px; font-weight:600; cursor:pointer; transition: all .15s ease; }
+.btn-primary { background:var(--primary); color:#fff; }
+.btn-primary:hover { background:#0a75e0; }
+.btn-ghost { background:var(--bg-elev-2); color:var(--text-2); border:1px solid var(--stroke); }
+.btn-ghost:hover { background:#242a33; color:var(--text-1); }
+/* 搜索区 */
+.search-bar { padding: 22px 28px 8px; display:flex; gap:12px; align-items:center; }
+.search-bar .input-wrap { flex:1; position:relative; }
+.search-bar input { width:100%; padding:12px 16px 12px 40px; border-radius:var(--radius); border:1px solid var(--stroke); background:var(--bg-elev); color:var(--text-1); font-size:14px; outline:none; transition: border-color .2s; }
+.search-bar input:focus { border-color:var(--primary); }
+.search-bar .input-wrap svg { position:absolute; left:14px; top:50%; transform:translateY(-50%); width:16px; height:16px; stroke:var(--text-3); }
+/* 统计 */
+.stats { display:flex; gap:16px; padding: 16px 28px; }
+.stat-card { flex:1; background:var(--bg-elev); border:1px solid var(--stroke); border-radius:var(--radius); padding:16px 20px; }
+.stat-card .num { font-size:26px; font-weight:800; }
+.stat-card .label { font-size:12px; color:var(--text-2); margin-top:2px; }
+.stat-card .num.blue { color:var(--primary); }
+.stat-card .num.green { color:var(--green); }
+.stat-card .num.purple { color:var(--purple); }
+/* 项目卡片区 */
+.section-title { display:flex; align-items:center; justify-content:space-between; padding: 18px 28px 10px; }
+.section-title h2 { font-size:15px; font-weight:700; }
+.section-title .hint { font-size:12px; color:var(--text-3); }
+.projects { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px; padding: 8px 28px 40px; }
+.project-card { background:var(--bg-elev); border:1px solid var(--stroke); border-radius:14px; padding:20px; cursor:pointer; transition: all .2s ease; position:relative; overflow:hidden; }
+.project-card:hover { transform: translateY(-2px); border-color:rgba(10,132,255,0.4); box-shadow: 0 8px 30px rgba(0,0,0,0.4); }
+.project-card .cover { height:64px; border-radius:8px; margin:-20px -20px 16px; display:flex; align-items:center; padding:0 20px; font-size:13px; font-weight:700; letter-spacing:1px; }
+.project-card .cover.wedding { background: linear-gradient(135deg, rgba(191,90,242,0.3), rgba(255,159,10,0.15)); color:#d9a8ff; }
+.project-card .cover.gala { background: linear-gradient(135deg, rgba(10,132,255,0.35), rgba(94,92,230,0.2)); color:#7dbcff; }
+.project-card .cover.show { background: linear-gradient(135deg, rgba(48,209,88,0.25), rgba(10,132,255,0.15)); color:#7be3a0; }
+.project-card .name { font-size:16px; font-weight:700; margin-bottom:6px; display:flex; align-items:center; gap:8px; }
+.project-card .name .tag { font-size:10px; padding:2px 7px; border-radius:4px; font-weight:600; }
+.project-card .name .tag.live { background:rgba(48,209,88,0.15); color:var(--green); }
+.project-card .name .tag.archived { background:rgba(99,99,107,0.2); color:var(--text-3); }
+.project-card .meta { font-size:12px; color:var(--text-2); line-height:1.7; }
+.project-card .meta span { margin-right:14px; }
+.project-card .footer { display:flex; justify-content:space-between; align-items:center; margin-top:14px; padding-top:12px; border-top:1px solid var(--stroke); }
+.project-card .footer .date { font-size:11px; color:var(--text-3); }
+.project-card .footer .open { font-size:12px; color:var(--primary); font-weight:600; }
+/* 新建项目浮层 */
+.fab { position:fixed; right:28px; bottom:28px; width:56px; height:56px; border-radius:50%; background:var(--primary); border:none; color:#fff; font-size:26px; cursor:pointer; box-shadow: 0 6px 24px rgba(10,132,255,0.4); display:flex; align-items:center; justify-content:center; transition: transform .15s ease; z-index:20; }
+.fab:hover { transform: scale(1.06); }
+/* 提示：这是设计预览 */
+.preview-badge { position:fixed; left:50%; transform:translateX(-50%); bottom:16px; background:rgba(255,159,10,0.9); color:#1a1200; font-size:11px; font-weight:700; padding:5px 14px; border-radius:20px; z-index:30; letter-spacing:0.5px; }
+@media (max-width:768px) {
+  .header { padding:14px 16px; }
+  .search-bar { padding:16px 16px 6px; }
+  .stats { padding:12px 16px; gap:8px; }
+  .stat-card { padding:12px 14px; }
+  .stat-card .num { font-size:20px; }
+  .section-title { padding:14px 16px 8px; }
+  .projects { grid-template-columns:1fr; padding:6px 16px 80px; }
+}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="logo">
+    <div class="mark">舞</div>
+    <div>
+      <h1>舞台流程表 <span style="font-size:11px;color:var(--text-3);font-weight:400">v6.3</span></h1>
+      <div class="sub">项目中心 · 多场次管理</div>
+    </div>
+  </div>
+  <div class="actions">
+    <button class="btn btn-ghost">导入工程包</button>
+    <button class="btn btn-primary">＋ 新建项目</button>
+  </div>
+</header>
+
+<div class="search-bar">
+  <div class="input-wrap">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+    <input placeholder="搜索项目 / 客户 / 日期..." />
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat-card"><div class="num blue">3</div><div class="label">进行中项目</div></div>
+  <div class="stat-card"><div class="num green">12</div><div class="label">已完成项目</div></div>
+  <div class="stat-card"><div class="num purple">5</div><div class="label">模板库</div></div>
+  <div class="stat-card"><div class="num">20</div><div class="label">全部项目</div></div>
+</div>
+
+<div class="section-title">
+  <h2>最近项目</h2>
+  <span class="hint">点击进入现场模式 · 长按更多操作</span>
+</div>
+
+<div class="projects">
+  <div class="project-card">
+    <div class="cover wedding">💒 婚礼流程</div>
+    <div class="name">张先生 & 李小姐婚礼 <span class="tag live">进行中</span></div>
+    <div class="meta">
+      <span>📅 08-15</span><span>👤 张先生</span><span>🎬 18 个节目</span>
+    </div>
+    <div class="footer">
+      <span class="date">最后编辑 今天 14:32</span>
+      <span class="open">进入现场 →</span>
+    </div>
+  </div>
+
+  <div class="project-card">
+    <div class="cover gala">🎪 年会盛典</div>
+    <div class="name">XX 集团年会 <span class="tag live">进行中</span></div>
+    <div class="meta">
+      <span>📅 12-20</span><span>👤 行政部</span><span>🎬 24 个节目</span>
+    </div>
+    <div class="footer">
+      <span class="date">最后编辑 昨天</span>
+      <span class="open">进入现场 →</span>
+    </div>
+  </div>
+
+  <div class="project-card">
+    <div class="cover show">🎤 演出专场</div>
+    <div class="name">夏日音乐节 <span class="tag archived">已归档</span></div>
+    <div class="meta">
+      <span>📅 07-01</span><span>👤 主办方</span><span>🎬 30 个节目</span>
+    </div>
+    <div class="footer">
+      <span class="date">最后编辑 07-01</span>
+      <span class="open">查看归档 →</span>
+    </div>
+  </div>
+
+  <div class="project-card" style="display:flex;align-items:center;justify-content:center;min-height:160px;border-style:dashed;background:transparent;">
+    <div style="text-align:center;color:var(--text-3)">
+      <div style="font-size:28px;margin-bottom:8px">＋</div>
+      <div style="font-size:13px">从模板新建项目</div>
+      <div style="font-size:11px;margin-top:4px">婚礼 / 年会 / 演出模板</div>
+    </div>
+  </div>
+</div>
+
+<button class="fab" title="新建项目">＋</button>
+<div class="preview-badge">设计预览 · v6.3 项目中心</div>
+
+</body>
+</html>

@@ -291,71 +291,6 @@
     return parts.join('/');
   }
 
-  function normalizeMidiEvent(value) {
-    var source = value && typeof value === 'object' ? value : {};
-    var status = Number(source.status);
-    var data1 = Number(source.data1);
-    var data2 = source.data2 === undefined ? 0 : Number(source.data2);
-    if (!isFinite(status) || status < 0 || status > 255 || Math.floor(status) !== status) return null;
-    if (!isFinite(data1) || data1 < 0 || data1 > 127 || Math.floor(data1) !== data1) return null;
-    if (!isFinite(data2) || data2 < 0 || data2 > 127 || Math.floor(data2) !== data2) return null;
-    return {
-      status: status,
-      data1: data1,
-      data2: data2,
-      channel: (status & 15) + 1
-    };
-  }
-
-  function normalizeMidiSettings(value) {
-    var source = value && typeof value === 'object' ? value : {};
-    var defaults = {
-      go: { type: 'note', val: 60 },
-      next: { type: 'note', val: 62 },
-      prev: { type: 'note', val: 58 }
-    };
-    var result = {
-      enabled: source.enabled !== false,
-      channel: 0
-    };
-    var channel = Number(source.channel);
-    if (isFinite(channel) && Math.floor(channel) === channel && channel >= 0 && channel <= 16) result.channel = channel;
-    ['go', 'next', 'prev'].forEach(function (key) {
-      var mapping = source[key] && typeof source[key] === 'object' ? source[key] : {};
-      var type = ['note', 'cc', 'pc'].indexOf(mapping.type) >= 0 ? mapping.type : defaults[key].type;
-      var number = Number(mapping.val);
-      var val = isFinite(number) && Math.floor(number) === number && number >= 0 && number <= 127 ? number : defaults[key].val;
-      result[key] = { type: type, val: val };
-    });
-    return result;
-  }
-
-  function mapMidiCommand(value, settings) {
-    var event = normalizeMidiEvent(value);
-    var config = settings && typeof settings === 'object' ? settings : {};
-    if (!event || config.enabled === false) return null;
-    var configuredChannel = Math.max(0, Math.min(16, parseInt(config.channel, 10) || 0));
-    if (configuredChannel && configuredChannel !== event.channel) return null;
-
-    var command = event.status >> 4;
-    var messageType = null;
-    if (command === 9 && event.data2 > 0) messageType = 'note';
-    else if (command === 11) messageType = 'cc';
-    else if (command === 12) messageType = 'pc';
-    if (!messageType) return null;
-
-    var actions = [
-      { key: 'go', action: 'advance' },
-      { key: 'next', action: 'next' },
-      { key: 'prev', action: 'prev' }
-    ];
-    for (var i = 0; i < actions.length; i++) {
-      var mapping = config[actions[i].key];
-      if (mapping && mapping.type === messageType && Number(mapping.val) === event.data1) return actions[i].action;
-    }
-    return null;
-  }
-
   function createEventBuffer(limit) {
     var max = Math.max(1, parseInt(limit, 10) || 200);
     var sequence = 0;
@@ -402,17 +337,6 @@
     };
   }
 
-  function transitionTally(tally, nextStatus, now) {
-    var current = tally && tally.status || 'sent';
-    var allowed = { acknowledged: true, dismissed: true, expired: true };
-    if (current !== 'sent' || !allowed[nextStatus]) throw new Error('invalid tally transition');
-    var result = Object.assign({}, tally, { status: nextStatus });
-    var timestamp = Number(now);
-    if (!Number.isFinite(timestamp)) timestamp = Date.now();
-    result[nextStatus + 'At'] = timestamp;
-    return result;
-  }
-
   function transitionApproval(approval, nextStatus, now, details) {
     if (!approval || (approval.status || 'pending') !== 'pending' || ['approved', 'rejected', 'expired'].indexOf(nextStatus) < 0) throw new Error('invalid approval transition');
     var timestamp = Number(now);
@@ -443,12 +367,8 @@
     removeChannelReferences: removeChannelReferences,
     normalizeCue: normalizeCue,
     normalizeMediaPath: normalizeMediaPath,
-    normalizeMidiEvent: normalizeMidiEvent,
-    normalizeMidiSettings: normalizeMidiSettings,
-    mapMidiCommand: mapMidiCommand,
     createEventBuffer: createEventBuffer,
     createActionDeduper: createActionDeduper,
-    transitionTally: transitionTally,
     transitionApproval: transitionApproval
   };
 }));

@@ -14,3 +14,6 @@
 projects/
 tess/
 .DS_Store
+**/unlock-state.json
+**/*.bak-*
+**/backups/

@@ -1,3 +1,44 @@
+# wutai 舞台流程表 wutai-lite 变更记录
+
+## 版本：1.1.0（2026-08-20）
+
+### 👥 角色管理（从正式版移植）
+- 角色管理弹窗：添加负责人/岗位、角色列表、角色工作时间总览、轮到我（CueApp 式）
+- 前端 mergeState 补齐 rolePlans（修复 rolePlans 恒 undefined 导致的角色管理/轨道缺失）
+- 桌面端角色管理入口仅控制端可见；手机底导「角色」入口同步权限
+
+### 📋 电子台本（从正式版移植）
+- 轻量电子台本视图：导入 + 列表展示 + 角色筛选（v6.9.9-P5）
+- 桌面端台本入口仅控制端可见
+
+### 🔓 解锁服务端校验（v6.9.x-FIX-L4）
+- 解锁从「前端 localStorage 门闩」升级为「服务端校验」：解锁成功生成服务端 token + HttpOnly cookie（30 天），懂行的直接改 localStorage 也过不了服务端
+- 项目中心/模板库等完整功能未解锁时返回 403 unlock_required
+- 解锁状态落盘 `unlock-state.json`；`unlockCode` 留空 = 未启用解锁，全部功能默认可用（维持现状）
+
+### 🛡️ 稳定性修复
+- **入口端口注入**（v6.9.x-FIX-L3）：渲染时注入入口端口，提示屏断线「返回入口」导航可用
+- **GO 按钮改回 onclick 直发**（v6.9.9-FIX）：attachLongPress 100ms 长按会吞掉快速点击
+- **syncLocalCueRunKey/maybeRunLocalAutomaticCues 补回**：精简删模块时误删定义致渲染链 ReferenceError（点了没反应刷新才好），已从正式版移植
+- **loadScript 重试死循环修复**：retries 参数归一化 + settled 幂等回调 + 失败节点移除
+- **set_current 上界校验**：非法 index 拒绝执行
+- **节目列表点击选中绿框跟随**：切 class 不重渲染，切模式/切节目重置选中索引
+
+## 版本：1.0.1（2026-08-11）
+
+### 🔓 解锁 UI 完成
+- 解锁弹窗 + 设置入口 + localStorage 记录解锁状态
+- normalizeConfig 保留 unlockCode 字段
+
+## 版本：1.0.0（2026-08-11）
+
+### 🎉 wutai-lite 精简免费版首发
+- 控制端 + 助理端 + 节目单 + GO/重置，最简单最稳定的舞台流程管理
+- 验证码解锁完整功能 API（/api/unlock）+ LITE 模式隐藏字幕/提示屏/Tally 入口
+- 完整版功能通过解锁码激活（Tally / 字幕屏 / 提示屏 / OSC / Cue 等）
+
+---
+
 # wutai 舞台流程表 v6.6.0 更新说明
 
 ## 版本：6.6.0（2026-08-11）
@@ -70,6 +111,6 @@
 ### 📺 字幕屏独立端口
 
 12. **字幕屏 3004 独立端口**：config 启用 subtitlePort=3004 + subtitleEnabled；buildAccessLinks 生成 links.subtitle（role=screen&subtitleMode=1 → 字幕独占视图）；控制端提示屏设置弹窗新增"字幕屏独立链接"区块（复制/打开窗口/选择屏幕并打开，独立屏幕下拉框）
-13. **Caddy 反代 /wutai-subtitle**：外网 https://panloveli.top:8443/wutai-subtitle/ 访问字幕屏
+13. **Caddy 反代 /wutai-subtitle**：外网 https://你的域名:8443/wutai-subtitle/ 访问字幕屏
 
 ---

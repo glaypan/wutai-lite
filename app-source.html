@@ -2966,11 +2966,11 @@ function authHeaders(extra) {
 }
 var permissionsVersion = 0;
 var PERM = {
-  control:    { mode:true, addDel:true, drag:true, editName:true, editDuration:true, editMusic:true, editChannel:true, editNotes:true, channelAdmin:true, importIt:true, nav:true, reset:true, exportIt:true, rename:true },
-  director:   { nav:true, editNotes:true, editMusic:true, editChannel:true, editName:true, editDuration:true, addDel:true, drag:true },
-  assistant:  { editMusic:true, editChannel:true, editNotes:true },
+  control:    { mode:true, addDel:true, drag:true, editName:true, editDuration:true, editMusic:true, editChannel:true, editNotes:true, channelAdmin:true, importIt:true, nav:true, reset:true, exportIt:true, rename:true, editTasks:true },
+  director:   { nav:true, editNotes:true, editMusic:true, editChannel:true, editName:true, editDuration:true, addDel:true, drag:true, editTasks:true },
+  assistant:  { editMusic:true, editChannel:true, editNotes:true, editTasks:true },
   backstage:  { editNotes:true },
-  console:    { editMusic:true, editChannel:true, editNotes:true },
+  console:    { editMusic:true, editChannel:true, editNotes:true, editTasks:true },
   screen:     {}
 };
 function can(k){ return !!(PERM[ROLE] && PERM[ROLE][k]); }
@@ -6812,6 +6812,8 @@ window.openProgramDetail = function(idx) {
   var canMusic = typeof can === 'function' ? can('editMusic') : true;
   var canNotes = typeof can === 'function' ? can('editNotes') : true;
   var canChannel = typeof can === 'function' ? can('editChannel') : true;
+  // v1.1.3: 详情弹窗任务区权限（控制端或有 editTasks 权限角色可编辑）
+  var canTasks = (typeof ROLE !== 'undefined' && ROLE === 'control') || (typeof can === 'function' ? can('editTasks') : true);
 
   // 通道区域：有编辑权限时显示复选框列表，否则只读展示
   var channelHtml;
@@ -6836,7 +6838,11 @@ window.openProgramDetail = function(idx) {
     '<div class="detail-row"><div class="card-label">🎛 启用通道</div>' + channelHtml + '</div>' +
     '<div class="detail-row"><div class="card-label">📝 备注</div>' +
       '<textarea class="detail-edit-area" id="detail-edit-notes" placeholder="舞台、灯光、演员提示" ' + (canNotes ? '' : 'disabled') + '>' + escapeHtml(prog.notes || '') + '</textarea></div>' +
-    '<div class="detail-row"><div class="card-label">⏱ 时长</div><div class="detail-duration">' + (prog.duration > 0 ? formatDuration(prog.duration) : '不计时') + '</div></div>';
+    '<div class="detail-row"><div class="card-label">⏱ 时长</div><div class="detail-duration">' + (prog.duration > 0 ? formatDuration(prog.duration) : '不计时') + '</div></div>' +
+    // v1.1.3: 节目详情卡补「本节目任务」区（与正式版一致；按 editTasks 权限显示）
+    '<div class="detail-row"><div class="card-label">🎯 本节目任务</div><div id="detail-cues"></div>' +
+      (canTasks ? '<div style="margin-top:4px"><button type="button" class="btn btn-secondary" id="detail-cues-add-btn">＋ 添加任务</button></div>' : '') +
+      '</div>';
 
   // 编辑事件：失焦时保存（完成后仍可修改）
   var musicEl = document.getElementById('detail-edit-musiccue');
@@ -6891,7 +6897,115 @@ window.openProgramDetail = function(idx) {
     resetBtn.style.display = ((typeof can === 'function' ? can('reset') : true) && prog.status === 'completed') ? '' : 'none';
   }
 
+  // v1.1.3: 渲染详情弹窗本节目任务列表 + 绑定添加按钮
+  renderDetailCues(idx);
+  var addTaskBtn = document.getElementById('detail-cues-add-btn');
+  if (addTaskBtn) addTaskBtn.onclick = function() { addDetailCue(idx); };
+
   document.getElementById('modal-program-detail').classList.remove('hidden');
+};
+
+// v1.1.3: 详情弹窗「本节目任务」渲染/添加/删除（与正式版一致；数据源 timeline.cues，update_state 即时保存）
+function detailCueRolesText(c) {
+  var rl = Array.isArray(c.role) ? c.role : (c.role ? [c.role] : []);
+  return rl.map(function(r) { return liteRoleDisplayName(r); }).join('/') || '通用';
+}
+function renderDetailCues(idx) {
+  var container = document.getElementById('detail-cues');
+  if (!container) return;
+  container.innerHTML = '';
+  var cues = (localState.timeline && Array.isArray(localState.timeline.cues)) ? localState.timeline.cues : [];
+  var progCues = cues.filter(function(c) { return c && c.programIndex === idx; })
+    .sort(function(a, b) { return (a.offsetMs || 0) - (b.offsetMs || 0); });
+  var canTasks = (typeof ROLE !== 'undefined' && ROLE === 'control') || (typeof can === 'function' ? can('editTasks') : true);
+  if (!progCues.length) {
+    container.innerHTML = '<div style="color:var(--text-3,#888);font-size:12px">暂无任务' + (canTasks ? '，点击下方「＋ 添加任务」' : '') + '</div>';
+    return;
+  }
+  progCues.forEach(function(c) {
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px dashed rgba(128,128,128,.25);';
+    row.innerHTML =
+      '<span style="flex:none;min-width:64px;font-size:12px;color:var(--text-2,#ccc);font-weight:600">' + escapeHtml(detailCueRolesText(c)) + '</span>' +
+      '<span style="flex:1;font-size:13px;color:var(--text-1,#fff)">' + escapeHtml(c.label || c.id || '') + '</span>' +
+      (canTasks ? '<button type="button" class="btn btn-secondary" style="padding:2px 8px;font-size:11px;flex:none" data-del="1">✕</button>' : '');
+    if (canTasks) {
+      var delBtn = row.querySelector('[data-del]');
+      delBtn.onclick = function() { removeDetailCue(idx, c.id); };
+    }
+    container.appendChild(row);
+  });
+}
+window.addDetailCue = function(idx) {
+  if ((typeof ROLE !== 'undefined' && ROLE !== 'control') && (typeof can === 'function' && !can('editTasks'))) return;
+  var container = document.getElementById('detail-cues');
+  if (!container) return;
+  var existing = document.getElementById('detail-cue-editor-row');
+  if (existing) existing.remove();
+  var roles = (localState.rolePlans && Array.isArray(localState.rolePlans.roles)) ? localState.rolePlans.roles : [];
+  var row = document.createElement('div');
+  row.id = 'detail-cue-editor-row';
+  row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 0;';
+  var sel = document.createElement('select');
+  sel.style.cssText = 'min-width:90px;border-radius:6px;border:1px solid var(--border);background:var(--bg-1);color:var(--text-1);padding:3px 5px;font-size:12px;';
+  if (!roles.length) {
+    var op0 = document.createElement('option');
+    op0.value = 'assistant'; op0.textContent = '助理';
+    sel.appendChild(op0);
+  }
+  roles.forEach(function(r) {
+    var op = document.createElement('option');
+    op.value = r.id; op.textContent = r.name || r.id;
+    sel.appendChild(op);
+  });
+  var inp = document.createElement('input');
+  inp.type = 'text';
+  inp.placeholder = '任务内容';
+  inp.style.cssText = 'flex:1;min-height:30px;border-radius:6px;border:1px solid var(--border);background:var(--bg-1);color:var(--text-1);padding:0 8px;font-size:13px;';
+  var okBtn = document.createElement('button');
+  okBtn.textContent = '✓';
+  okBtn.className = 'btn btn-secondary';
+  okBtn.style.cssText = 'padding:2px 10px;font-size:12px;';
+  var cancelBtn = document.createElement('button');
+  cancelBtn.textContent = '✕';
+  cancelBtn.className = 'btn btn-secondary';
+  cancelBtn.style.cssText = 'padding:2px 10px;font-size:12px;';
+  okBtn.onclick = function() {
+    var label = inp.value.trim();
+    if (!label) { showToast('任务内容不能为空'); return; }
+    var cues = (localState.timeline && Array.isArray(localState.timeline.cues)) ? localState.timeline.cues : [];
+    var rand36 = Math.random().toString(36).slice(2, 7);
+    cues.push({
+      id: 'task_' + Date.now().toString(36) + '_' + rand36,
+      trackId: 'audio',
+      role: [sel.value],
+      programIndex: idx,
+      offsetMs: 0,
+      durationMs: 60000,
+      triggerOffsetMs: 0,
+      label: label,
+      status: 'pending'
+    });
+    if (!localState.timeline) localState.timeline = {};
+    localState.timeline.cues = cues;
+    sendMsg({ type: 'update_state', data: { timeline: { cues: cues } } });
+    renderDetailCues(idx);
+  };
+  cancelBtn.onclick = function() { row.remove(); };
+  row.appendChild(sel); row.appendChild(inp); row.appendChild(okBtn); row.appendChild(cancelBtn);
+  container.appendChild(row);
+  if (inp.focus) inp.focus();
+};
+window.removeDetailCue = function(idx, id) {
+  var cues = (localState.timeline && Array.isArray(localState.timeline.cues)) ? localState.timeline.cues : [];
+  var target = null;
+  for (var i = 0; i < cues.length; i++) if (cues[i] && cues[i].id === id) { target = cues[i]; break; }
+  if (!target) return;
+  if (!window.confirm('删除任务「' + (target.label || id) + '」？')) return;
+  var next = cues.filter(function(c) { return !(c && c.id === id); });
+  localState.timeline.cues = next;
+  sendMsg({ type: 'update_state', data: { timeline: { cues: next } } });
+  renderDetailCues(idx);
 };
 
 window.detailResetOne = function() {

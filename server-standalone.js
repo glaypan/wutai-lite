@@ -129,6 +129,7 @@ function normalizeConfig(raw) {
     port: parsePort(raw.port, 3001),
     clientPort: parsePort(raw.clientPort, raw.displayPort || 3002),
     screenPort: parsePort(raw.screenPort, 3003),
+    rolePorts: raw.rolePorts && typeof raw.rolePorts === "object" ? raw.rolePorts : {},
     roleTokens: raw.roleTokens && typeof raw.roleTokens === "object" ? raw.roleTokens : {},
     unlockCode: typeof raw.unlockCode === "string" ? raw.unlockCode : "",
     displayToken: isToken(raw.displayToken) ? raw.displayToken : randomToken(),

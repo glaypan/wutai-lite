@@ -2346,6 +2346,12 @@ body.mode-setup .completed-check-icon { cursor:pointer; pointer-events:auto; }
             <textarea id="edit-musiccue" class="text-input textarea" placeholder="如：前奏8小节后进人声；副歌第2段起灯光；末尾淡出"></textarea>
           </div>
 
+          <div class="form-group" id="edit-program-cues-group"><!-- v1.1.4: 本节目任务（与正式版一致） -->
+            <label>🎯 本节目任务</label>
+            <div id="edit-program-cues" style="display:flex;flex-direction:column;gap:6px;"></div>
+            <button type="button" class="btn btn-secondary" id="edit-program-cues-add-btn" onclick="addEditProgramCue()">＋ 添加任务</button>
+          </div>
+
           <div class="form-group">
             <label>通用舞台/灯光备注</label>
             <textarea id="edit-notes" class="text-input textarea" placeholder="舞台、灯光、演员提示"></textarea>
@@ -6651,8 +6657,12 @@ window.openEditProgram = function (idx) {
   document.getElementById('edit-notes').disabled = !can('editNotes');
   var channelWrap = document.getElementById('program-channel-select');
   if (channelWrap) channelWrap.style.opacity = can('editChannel') ? '1' : '0.5';
+  // v1.1.4: 本节目任务区按 editTasks 权限显示（无权限角色整个隐藏）
+  var cuesGroup = document.getElementById('edit-program-cues-group');
+  if (cuesGroup) cuesGroup.style.display = (ROLE === 'control' || can('editTasks')) ? '' : 'none';
   document.getElementById('edit-panel').classList.remove('hidden');
   renderProgramChannelSelector();
+  renderEditProgramCues();  // v1.1.4: 渲染本节目任务行
   ['mics','lines'].forEach(function(ctype) {
     refreshChannelTypeControls(ctype);
   });
@@ -6662,6 +6672,83 @@ window.closeEditPanel = function () {
   editingIndex = null;
   document.getElementById('edit-panel').classList.add('hidden');
   document.getElementById('setup-placeholder').classList.remove('hidden');
+};
+
+// v1.1.4: 编辑面板「本节目任务」行渲染/添加/删除（与正式版一致；角色+内容两字段）
+window.renderEditProgramCues = function() {
+  var container = document.getElementById('edit-program-cues');
+  if (!container) return;
+  container.innerHTML = '';
+  var disabled = !can('editTasks') && ROLE !== 'control';
+  var roles = (localState.rolePlans && localState.rolePlans.roles) ? localState.rolePlans.roles : [];
+  var cues = (localState.timeline && localState.timeline.cues) ? localState.timeline.cues : [];
+  var progCues = [];
+  for (var i = 0; i < cues.length; i++) {
+    if (cues[i].programIndex === editingIndex) progCues.push(cues[i]);
+  }
+  for (var j = 0; j < progCues.length; j++) {
+    container.appendChild(window._buildCueRow(progCues[j], roles, disabled));
+  }
+  var addBtn = document.getElementById('edit-program-cues-add-btn');
+  if (addBtn) addBtn.disabled = disabled;
+};
+window._buildCueRow = function(cue, roles, disabled) {
+  var row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:6px;align-items:center;flex-wrap:wrap;';
+  row.setAttribute('data-cue-id', cue ? (cue.id || '') : '');
+  var sel = document.createElement('select');
+  sel.setAttribute('data-cue-role', '1');
+  sel.disabled = disabled;
+  sel.style.cssText = 'min-width:120px;border-radius:6px;border:1px solid var(--border);background:var(--bg-1);color:var(--text-1);padding:3px 5px;font-size:13px;';
+  var optU = document.createElement('option');
+  optU.value = '__unassigned';
+  optU.textContent = '未分配';
+  sel.appendChild(optU);
+  var currentRole = (cue && cue.role && cue.role.length) ? cue.role[0] : '__unassigned';
+  var roleFound = false;
+  for (var r = 0; r < roles.length; r++) {
+    var op = document.createElement('option');
+    op.value = roles[r].id;
+    op.textContent = roles[r].name || roles[r].id;
+    if (currentRole === roles[r].id || currentRole === roles[r].name) { op.selected = true; roleFound = true; }
+    sel.appendChild(op);
+  }
+  if (currentRole !== '__unassigned' && !roleFound) {
+    var opExtra = document.createElement('option');
+    opExtra.value = currentRole;
+    opExtra.textContent = currentRole + '（已删除角色）';
+    opExtra.selected = true;
+    sel.appendChild(opExtra);
+  }
+  var inp = document.createElement('input');
+  inp.type = 'text';
+  inp.setAttribute('data-cue-label', '1');
+  inp.placeholder = '任务内容';
+  inp.value = cue ? (cue.label || '') : '';
+  inp.disabled = disabled;
+  inp.style.cssText = 'flex:1;min-width:140px;min-height:30px;border-radius:6px;border:1px solid var(--border);background:var(--bg-1);color:var(--text-1);padding:0 8px;font-size:13px;';
+  var delBtn = document.createElement('button');
+  delBtn.textContent = '✕';
+  delBtn.type = 'button';
+  delBtn.disabled = disabled;
+  delBtn.style.cssText = 'padding:3px 8px;font-size:13px;';
+  delBtn.className = 'btn btn-secondary';
+  delBtn.onclick = function() { removeEditProgramCue(delBtn); };
+  row.appendChild(sel); row.appendChild(inp); row.appendChild(delBtn);
+  return row;
+};
+window.addEditProgramCue = function() {
+  if (ROLE !== 'control' && !can('editTasks')) return;
+  var container = document.getElementById('edit-program-cues');
+  if (!container) return;
+  var roles = (localState.rolePlans && localState.rolePlans.roles) ? localState.rolePlans.roles : [];
+  var row = window._buildCueRow(null, roles, false);
+  container.appendChild(row);
+};
+window.removeEditProgramCue = function(btn) {
+  if (ROLE !== 'control' && !can('editTasks')) return;
+  var row = btn.parentNode;
+  if (row && row.parentNode) row.parentNode.removeChild(row);
 };
 
 window.saveProgram = function () {
@@ -6687,6 +6774,72 @@ window.saveProgram = function () {
     if (can('editNotes')) { localState.programs[editingIndex].notes = notes; sendMsg({ type: "update_program_field", idx: editingIndex, field: 'notes', value: notes, role: ROLE }); }
     if (can('editChannel')) { sendMsg({ type: "update_channels", data: { globalChannels: JSON.parse(JSON.stringify(localState.globalChannels)), programs: JSON.parse(JSON.stringify(localState.programs)) }, role: ROLE }); }
     saveToStorage();
+  }
+  // v1.1.4: 收集本节目任务行（保留原 cue 身份/状态/多角色/毫秒精度；角色+内容两字段）
+  if (ROLE === 'control' || can('editTasks')) {
+    var cueContainer = document.getElementById('edit-program-cues');
+    var newProgCues = [];
+    var existingCues = (localState.timeline && Array.isArray(localState.timeline.cues)) ? localState.timeline.cues : [];
+    var origById = {};
+    for (var oi = 0; oi < existingCues.length; oi++) {
+      if (existingCues[oi] && existingCues[oi].id) origById[existingCues[oi].id] = existingCues[oi];
+    }
+    if (cueContainer) {
+      var cueRows = cueContainer.children;
+      for (var ci = 0; ci < cueRows.length; ci++) {
+        var crow = cueRows[ci];
+        if (!crow || typeof crow.querySelector !== 'function') continue;
+        var roleSel = crow.querySelector('[data-cue-role]');
+        var labelIn = crow.querySelector('[data-cue-label]');
+        var roleVal = roleSel ? roleSel.value : '__unassigned';
+        var labelVal = labelIn ? labelIn.value.trim() : '';
+        var origId = crow.getAttribute('data-cue-id') || '';
+        var orig = origId ? origById[origId] : null;
+        var startMs = orig ? (orig.offsetMs || 0) : 0;
+        var durMs = orig ? (orig.durationMs || 60000) : 60000;
+        var leadMs = orig ? (orig.triggerOffsetMs || 0) : 0;
+        if (orig) {
+          var updated = {};
+          for (var key in orig) {
+            if (Object.prototype.hasOwnProperty.call(orig, key)) updated[key] = orig[key];
+          }
+          updated.offsetMs = orig.offsetMs || 0;
+          updated.durationMs = orig.durationMs || 60000;
+          updated.triggerOffsetMs = orig.triggerOffsetMs || 0;
+          updated.label = labelVal;
+          var origRole = (Array.isArray(orig.role) && orig.role.length) ? orig.role.slice() : [];
+          if (roleVal === '__unassigned') {
+            if (!origRole.length) continue;
+          } else {
+            origRole[0] = roleVal;
+          }
+          updated.role = origRole;
+          newProgCues.push(updated);
+        } else {
+          if (!labelVal) continue;
+          var rand36 = Math.random().toString(36).slice(2, 7);
+          newProgCues.push({
+            id: 'task_' + Date.now().toString(36) + '_' + rand36,
+            trackId: 'audio',
+            role: roleVal === '__unassigned' ? [] : [roleVal],
+            programIndex: editingIndex,
+            offsetMs: startMs,
+            durationMs: durMs,
+            triggerOffsetMs: leadMs,
+            label: labelVal,
+            status: 'pending'
+          });
+        }
+      }
+    }
+    var otherCues = [];
+    for (var oi2 = 0; oi2 < existingCues.length; oi2++) {
+      if (existingCues[oi2] && existingCues[oi2].programIndex !== editingIndex) otherCues.push(existingCues[oi2]);
+    }
+    var allCues = otherCues.concat(newProgCues);
+    if (!localState.timeline) localState.timeline = {};
+    localState.timeline.cues = allCues;
+    sendMsg({ type: 'update_state', data: { timeline: { cues: allCues } } });
   }
   closeEditPanel();
 };

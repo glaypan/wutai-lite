@@ -416,6 +416,7 @@ var defaultState = {
   showName: "舞台流程表", mode: "setup", currentProgramIndex: 0, version: 5,
   globalChannels: { mics: [], lines: [] }, programs: [],
   screenSettings: { fontSize: 72, showStatus: true, showChannels: true, showMusic: true, showNotes: true, showNext: true, showProgress: true, displayMode: "live" },
+  masterLock: { mode: "strict" },  // v7.3.0: 主控锁模式 strict/loose（holder 为运行时内存态不落盘，持锁者掉线自动释放）
   timeline: { tracks: [], cues: [] },
   timingSettings: { enabled: false, phase: "rehearsal", autoCue: false, preferRehearsal: true },
   runtimeTimer: { programIndex: 0, startedAt: 0, pausedAt: 0, pausedTotalMs: 0, running: false },
@@ -427,6 +428,196 @@ function loadState() {
 }
 function mergeMusicField(p) { var cue = (p.musicCue || "").trim(); var node = (p.musicNode || "").trim(); if (!node) return cue; return cue ? "\u3010\u8282\u70b9\u3011" + node + "\n" + cue : node; }
 function ensureChannel(ch) { return { id: ch.id || ("ch_" + Date.now() + "_" + Math.random().toString(36).substr(2, 6)), name: ch.name || "", type: ch.type || "", notes: ch.notes || "", customType: ch.customType || "" }; }
+// ===== P2-2 runbook 流程编排 =====
+// 节目级编排：进入节目时按 delaySec（相对进入时刻的绝对秒数）排队执行动作序列 + 可选到点自动 GO
+// gpt-5.5 复查采纳：delaySec=绝对秒数（排序后单 timer 调度）/ programRunId 统一管理双 timer /
+// activateProgram 唯一切节目入口 / set_current 同 index 不重启 / 熔断链计数规则 / clear 边界确定
+var EMPTY_RUNBOOK = { onEnter: [], autoAdvance: false, autoAdvanceSec: 0 };
+var RUNBOOK_ACTIONS = ["screen_mode", "clear"]; // lite 精简版：无字幕/无Tally基础设施，仅编排存在动作
+var RUNBOOK_ROLES = ["assistant", "backstage", "console", "director", "all"];
+var RUNBOOK_SCREEN_MODES = ["live", "standby", "blackout", "freeze", "test"];
+var MAX_RUNBOOK_ACTIONS = 50;
+var MAX_RUNBOOK_DELAY = 300;
+var AUTOADVANCE_MIN_SEC = 5;
+var AUTOADVANCE_MAX_SEC = 3600;
+var AUTOADVANCE_CHAIN_MAX = 5; // 连发链 ≤5，超过熔断暂停告警
+var runbookTimer = null; // 全局唯一 runbook 执行 timer
+var autoAdvanceTimer = null; // 全局唯一 autoAdvance timer
+var activeProgramRunId = 0; // 节目生命周期 id：切节目递增，双 timer 回调校验
+var runbookRun = null; // 当前 run 状态 {runId, programIndex, queue, nextIdx, firedCount, startedAt}
+var autoAdvanceChainCount = 0; // 熔断链计数：仅 autoAdvance 触发的连续切换递增
+var autoAdvanceBreakerFired = false;
+// 规范化 runbook（纯函数返回新对象；白名单过滤 + 参数 clamp；老数据无 runbook 自动补空对象 = 零迁移）
+// 静态校验即规范化：非法动作/参数在 mergeState 阶段丢弃，不进执行队列
+function normalizeRunbook(rb) {
+  var src = rb && typeof rb === "object" ? rb : {};
+  var onEnter = Array.isArray(src.onEnter) ? src.onEnter.slice(0, MAX_RUNBOOK_ACTIONS) : [];
+  var actions = [];
+  onEnter.forEach(function(a) {
+    if (!a || typeof a !== "object") return;
+    var action = String(a.action || "");
+    if (RUNBOOK_ACTIONS.indexOf(action) < 0) return;
+    var item = { action: action, delaySec: isFinite(parseInt(a.delaySec, 10)) ? Math.max(0, Math.min(MAX_RUNBOOK_DELAY, parseInt(a.delaySec, 10))) : 0 };
+    if (action === "subtitle_goto") {
+      item.index = isFinite(parseInt(a.index, 10)) ? parseInt(a.index, 10) : 0;
+    } else if (action === "tally") {
+      var roles = Array.isArray(a.roles) ? a.roles.filter(function(r) { return RUNBOOK_ROLES.indexOf(r) >= 0; }) : [];
+      if (!roles.length) roles = ["assistant"];
+      item.roles = roles;
+    } else if (action === "screen_mode") {
+      item.mode = RUNBOOK_SCREEN_MODES.indexOf(a.mode) >= 0 ? a.mode : "live";
+    }
+    actions.push(item);
+  });
+  var autoAdvanceSec = isFinite(parseInt(src.autoAdvanceSec, 10)) ? parseInt(src.autoAdvanceSec, 10) : 0;
+  if (autoAdvanceSec !== 0) autoAdvanceSec = Math.max(AUTOADVANCE_MIN_SEC, Math.min(AUTOADVANCE_MAX_SEC, autoAdvanceSec));
+  return { onEnter: actions, autoAdvance: src.autoAdvance === true, autoAdvanceSec: autoAdvanceSec };
+}
+// R8: 状态广播（控制端 banner 用）
+function broadcastRunbookState() {
+  var nextAction = null;
+  if (runbookRun && runbookRun.queue[runbookRun.nextIdx]) nextAction = runbookRun.queue[runbookRun.nextIdx].action;
+  broadcast({ type: "runbook_state_changed", programIndex: state.currentProgramIndex, active: !!runbookRun, runId: runbookRun ? runbookRun.runId : null, nextAction: nextAction, autoAdvanceSec: (state.programs[state.currentProgramIndex] || {}).runbook && (state.programs[state.currentProgramIndex]).runbook.autoAdvanceSec || 0, firedCount: runbookRun ? runbookRun.firedCount : 0, chainCount: autoAdvanceChainCount, breaker: autoAdvanceBreakerFired });
+}
+// R5: 取消当前 runbook run（切节目 / 手动接管）
+function cancelRunbookRun(reason) {
+  if (runbookTimer) { clearTimeout(runbookTimer); runbookTimer = null; }
+  if (runbookRun) {
+    logAction("system", "runbook: cancel run " + runbookRun.runId + " reason=" + reason);
+    runbookRun = null;
+    broadcastRunbookState();
+  }
+}
+// R6: 取消待执行 autoAdvance（手动关键操作优先）
+function cancelAutoAdvance(reason) {
+  if (autoAdvanceTimer) { clearTimeout(autoAdvanceTimer); autoAdvanceTimer = null; }
+  if (reason) logAction("system", "runbook: autoAdvance cancel reason=" + reason);
+}
+function resetAutoAdvanceChain() { autoAdvanceChainCount = 0; autoAdvanceBreakerFired = false; }
+// R3: runbook 执行器——按 delaySec（绝对秒数）升序排序，单 timer 调度下一条到期动作
+function runRunbook(program) {
+  cancelRunbookRun("new_run");
+  var rb = program && program.runbook;
+  if (!rb || !Array.isArray(rb.onEnter) || !rb.onEnter.length) return;
+  var runId = activeProgramRunId + "_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
+  var queue = rb.onEnter.slice().sort(function(a, b) { return a.delaySec - b.delaySec; });
+  runbookRun = { runId: runId, programIndex: state.currentProgramIndex, queue: queue, nextIdx: 0, firedCount: 0, startedAt: Date.now() };
+  logAction("system", "runbook: start run " + runId + " program=" + state.currentProgramIndex + " actions=" + queue.length);
+  broadcastRunbookState();
+  scheduleRunbookNext(runId);
+}
+function scheduleRunbookNext(runId) {
+  if (runbookTimer) { clearTimeout(runbookTimer); runbookTimer = null; }
+  if (!runbookRun || runbookRun.runId !== runId) return;
+  var qi = runbookRun.nextIdx;
+  if (qi >= runbookRun.queue.length) {
+    var doneRunId = runbookRun.runId;
+    runbookRun = null;
+    logAction("system", "runbook: done run " + doneRunId);
+    broadcastRunbookState();
+    return;
+  }
+  var item = runbookRun.queue[qi];
+  var elapsedMs = Date.now() - runbookRun.startedAt;
+  var waitMs = Math.max(0, item.delaySec * 1000 - elapsedMs);
+  runbookTimer = setTimeout(function() {
+    runbookTimer = null;
+    // 执行前双重校验：runId 一致（防旧 run 残留）+ 节目未切走
+    if (!runbookRun || runbookRun.runId !== runId) return;
+    if (runbookRun.programIndex !== state.currentProgramIndex) { runbookRun = null; return; }
+    executeRunbookAction(item, runId);
+    if (runbookRun && runbookRun.runId === runId) {
+      runbookRun.nextIdx++;
+      scheduleRunbookNext(runId);
+    }
+  }, waitMs);
+}
+// 执行单条动作（复用既有 WS 逻辑；写状态前校验 runId；单条失败记 failed 继续后续）
+function executeRunbookAction(item, runId) {
+  if (!runbookRun || runbookRun.runId !== runId) return;
+  if (runbookRun.programIndex !== state.currentProgramIndex) { runbookRun = null; return; }
+  try {
+    if (item.action === "subtitle_goto") {
+      var lines = state.subtitle.lines || [];
+      state.subtitle.currentIndex = Math.max(-1, Math.min(item.index === undefined ? 0 : item.index, lines.length - 1));
+    } else if (item.action === "subtitle_show") {
+      state.subtitle.visible = true;
+    } else if (item.action === "subtitle_hide") {
+      state.subtitle.visible = false;
+    } else if (item.action === "tally") {
+      var prog = state.programs[state.currentProgramIndex] || {};
+      var t = createTally({ programId: prog.id, programIndex: state.currentProgramIndex, roles: item.roles, source: "runbook", senderRole: "system" });
+      if (t) { broadcastTally(t); addTallyHistory(t); }
+    } else if (item.action === "screen_mode") {
+      state.screenSettings.displayMode = item.mode;
+    } else if (item.action === "clear") {
+      // clear 边界确定：只清字幕 + 停自动走句 + 同步清 P2-1 outputsOverlay 字幕叠加层（不清节目数据/其他状态）
+      if (state.subtitle.lines && state.subtitle.lines.length > 0) {
+        state.subtitle.lastBackup = { lines: state.subtitle.lines.slice(), currentIndex: state.subtitle.currentIndex, visible: state.subtitle.visible, fontSize: state.subtitle.fontSize, backedUpAt: Date.now() };
+      }
+      state.subtitle.lines = []; state.subtitle.currentIndex = -1; state.subtitle.visible = false;
+      if (state.subtitle.autoPlay) { state.subtitle.autoPlay.enabled = false; if (autoPlayTimer) { clearTimeout(autoPlayTimer); autoPlayTimer = null; } }
+      outputsOverlay.subtitle = { text: '', visible: false };
+    }
+    commitState();
+    if (runbookRun && runbookRun.runId === runId) runbookRun.firedCount++;
+    logAction("system", "runbook: " + item.action + " run=" + runId + " status=executed");
+    broadcast({ type: "runbook_executed", programIndex: state.currentProgramIndex, runId: runId, action: item.action, status: "executed", at: Date.now() });
+    broadcastRunbookState();
+  } catch (e) {
+    console.error("[runbook]", e.message);
+    logAction("system", "runbook: " + item.action + " run=" + runId + " status=failed");
+    broadcast({ type: "runbook_executed", programIndex: state.currentProgramIndex, runId: runId, action: item.action, status: "failed", reason: String(e.message || "").slice(0, 100), at: Date.now() });
+  }
+}
+// R4/R6: 进入节目统一入口（唯一切节目函数，三入口共用）
+function activateProgram(newIndex, opts) {
+  opts = opts || {};
+  var idx = Math.max(0, Math.min(newIndex, Math.max(0, state.programs.length - 1)));
+  if (opts.completeCurrent && state.currentProgramIndex >= 0 && state.currentProgramIndex < state.programs.length) {
+    state.programs[state.currentProgramIndex].status = "completed";
+  }
+  var idxChanged = idx !== state.currentProgramIndex;
+  state.currentProgramIndex = idx;
+  if (state.programs[idx] && state.programs[idx].status !== "completed") state.programs[idx].status = "active";
+  resetTimerForCurrent(shouldStartTimer(opts.timerReason || "program_switch"));
+  // 节目生命周期统一管理：递增 programRunId → 旧 runbook/autoAdvance 全部失效
+  activeProgramRunId++;
+  cancelRunbookRun("program_switch");
+  cancelAutoAdvance("program_switch");
+  if (opts.source !== "auto") resetAutoAdvanceChain(); // 人工导航清零熔断链
+  commitState();
+  // set_current 同 index 不重启（gpt 复查采纳）
+  if (idxChanged) {
+    maybeRunRunbook(state.programs[idx]);
+    maybeStartAutoAdvance(state.programs[idx]);
+  }
+}
+function maybeRunRunbook(program) { runRunbook(program); }
+// R6: autoAdvance——唯一 timer + programRunId 校验 + 熔断（仅 autoAdvance 触发链递增；到非 autoAdvance 节目清零）
+function maybeStartAutoAdvance(program) {
+  cancelAutoAdvance("new_program");
+  if (autoAdvanceBreakerFired) return; // 熔断后不再自动排，人工导航恢复
+  var rb = program && program.runbook;
+  if (!rb || !rb.autoAdvance || !(rb.autoAdvanceSec > 0)) { resetAutoAdvanceChain(); return; }
+  if (state.programs.length < 2) { resetAutoAdvanceChain(); return; }
+  var runId = activeProgramRunId;
+  var sec = rb.autoAdvanceSec;
+  autoAdvanceTimer = setTimeout(function() {
+    autoAdvanceTimer = null;
+    if (runId !== activeProgramRunId) return; // 节目已切走
+    autoAdvanceChainCount++;
+    if (autoAdvanceChainCount > AUTOADVANCE_CHAIN_MAX) {
+      autoAdvanceBreakerFired = true;
+      logAction("system", "runbook: autoAdvance breaker fired chain=" + autoAdvanceChainCount);
+      broadcast({ type: "runbook_state_changed", programIndex: state.currentProgramIndex, active: false, runId: null, nextAction: null, autoAdvanceSec: 0, firedCount: 0, chainCount: autoAdvanceChainCount, breaker: true, alert: "autoAdvance 连续推进超限已暂停，请手动接管" });
+      return;
+    }
+    logAction("system", "runbook: autoAdvance fire chain=" + autoAdvanceChainCount);
+    ensureHistorySnapshot("system", "autoAdvance");
+    activateProgram(state.currentProgramIndex + 1, { completeCurrent: true, timerReason: "go", source: "auto" });
+  }, sec * 1000);
+}
 function mergeState(s) {
   var oldVersion = s.version || 1;
   var merged = {
@@ -436,7 +627,7 @@ function mergeState(s) {
     programs: (s.programs || []).map(function(p) {
       var status = p.status; if (!status) { status = p.completed ? "completed" : "pending"; }
       var duration = p.duration || 0; if (oldVersion < 3 && duration >= 60) { duration = Math.round(duration / 60); }
-      return { name: p.name || "", duration: duration, rehearsalDurationMs: Math.max(0, Math.min(86400000, parseInt(p.rehearsalDurationMs) || 0)), notes: p.notes || "", musicCue: mergeMusicField(p), status: status, useChannels: p.useChannels || (p.mics ? p.mics.filter(function(m){return m.active;}).map(function(m){return m.name;}) : []),
+      return { name: p.name || "", duration: duration, rehearsalDurationMs: Math.max(0, Math.min(86400000, parseInt(p.rehearsalDurationMs) || 0)), notes: p.notes || "", musicCue: mergeMusicField(p), status: status, useChannels: p.useChannels || (p.mics ? p.mics.filter(function(m){return m.active;}).map(function(m){return m.name;}) : []), runbook: normalizeRunbook(p.runbook),
       };
     })
   };
@@ -558,6 +749,7 @@ function maybeTriggerAutomaticCues() {
     automaticCueTriggered[String(cue.id)] = true;
     logAction("timer", "auto_cue: " + (cue.label || cue.id));
     broadcast({ type: "cue_triggered", cue: cue, source: "timer", at: new Date().toISOString() });
+    syncCueOverlay(cue);
   });
 }
 // 启动时立即持久化迁移后的规范状态，避免磁盘继续保留旧版本字段。
@@ -585,7 +777,7 @@ function ensureHistorySnapshot(role, action) {
 }
 if (state.programs.length > 0 && state.currentProgramIndex > state.programs.length - 1) state.currentProgramIndex = Math.max(0, state.programs.length - 1);
 
-var FIELD_PERMISSION = { name: "addDel", duration: "addDel", rehearsalDurationMs: "addDel", notes: "editNotes", musicCue: "editMusic", useChannels: "editChannels" };
+var FIELD_PERMISSION = { name: "addDel", duration: "addDel", rehearsalDurationMs: "addDel", notes: "editNotes", musicCue: "editMusic", useChannels: "editChannels", runbook: "addDel" };
 function canEditField(role, field) { return !!FIELD_PERMISSION[field] && hasPermission(role, FIELD_PERMISSION[field]); }
 
 var entryServer = http.createServer(function(req, res) { serveRequest(req, res, "entry"); });
@@ -720,6 +912,8 @@ function rejectUpgrade(socket) {
   try { socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n"); } catch (e) {}
   socket.destroy();
 }
+// v7.2.1-P1: 屏幕在线计数（lite 无字幕端：screen=提示屏 / screenCtrl=提示屏控制端）
+var screenClientStats = { subtitleScreen: 0, screen: 0, subtitleCtrl: 0, screenCtrl: 0 };
 function attachUpgrade(httpServer, socketServer, serverType) {
   httpServer.on("upgrade", function(req, socket, head) {
     if (!isAllowedOrigin(req)) return rejectUpgrade(socket);
@@ -738,7 +932,15 @@ function attachUpgrade(httpServer, socketServer, serverType) {
     }
     socketServer.handleUpgrade(req, socket, head, function(ws) {
       ws.stageRole = role;
+      ws.stageServerType = serverType;
       ws.unlocked = requestUnlocked(req);  // v6.9.x-FIX-L4: 解锁状态（防前端门闩绕过）
+      // v7.2.1-P1: 屏幕在线计数（WS 生命周期注册/注销）
+      if (serverType === "screen") screenClientStats.screen++;
+      else if (serverType === "client-screenCtrl") screenClientStats.screenCtrl++;
+      ws.on("close", function() {
+        if (serverType === "screen") screenClientStats.screen = Math.max(0, screenClientStats.screen - 1);
+        else if (serverType === "client-screenCtrl") screenClientStats.screenCtrl = Math.max(0, screenClientStats.screenCtrl - 1);
+      });
       socketServer.emit("connection", ws, req);
     });
   });
@@ -765,7 +967,7 @@ function sendToRole(role, obj) {
   });
 }
 function fullStatePayload() {
-  return { type: "full_state", state: state, clientCount: connectionCount(), cueTriggeredIds: cueTriggeredIds(), seq: eventSequence, serverInstanceId: serverInstanceId, permissionsVersion: permissionsVersion };
+  return { type: "full_state", state: state, clientCount: connectionCount(), cueTriggeredIds: cueTriggeredIds(), seq: eventSequence, serverInstanceId: serverInstanceId, permissionsVersion: permissionsVersion, masterLock: masterLockPublic(), outputs: buildOutputs(state) };
 }
 function sendResume(ws, msg) {
   var lastSeq = Number(msg.lastSeq);
@@ -792,6 +994,8 @@ function setupSocketServer(socketServer) {
     ws.on("close", function() {
       broadcastClientCount();
       cleanupPendingModeRequests(ws);
+      // v7.3.0: 主控锁持锁者掉线/断网自动释放（不锁死现场）
+      if (masterLockHolder && masterLockHolder.ws === ws) releaseMasterLock();
     });
   });
 }
@@ -829,6 +1033,109 @@ function checkModeRequestTimeouts() {
 }
 setInterval(checkModeRequestTimeouts, 10000);
 
+
+// ---------- 主控锁（v7.3.0：多控制端协同，strict 默认） ----------
+// 锁是服务端权威：holder 为运行时内存态（不落盘），持锁者掉线自动释放；mode 随 state 落盘
+var masterLockHolder = null;
+function masterLockMode() {
+  return (state.masterLock && state.masterLock.mode === "loose") ? "loose" : "strict";
+}
+
+// ===== P2-1 统一输出面（output surfaces）状态模型：buildOutputs 派生快照 =====
+// 纯函数派生：screen/subtitle/overlay 三块统一快照，不写 state、不落盘。
+// outputsOverlay 为内存态叠加层（runbook/控制端 overlay_update 写入 + cue 触发同步）
+var outputsOverlay = { subtitle: { text: '', visible: false }, media: { type: '', url: '', active: false } };
+function buildOutputs(s) {
+  var prog = (s.programs || [])[s.currentProgramIndex];
+  var next = (s.programs || [])[s.currentProgramIndex + 1];
+  var doneCount = 0;
+  (s.programs || []).forEach(function(p) { if (p && p.status === 'completed') doneCount++; });
+  var sc = s.screenSettings || {};
+  var sub = s.subtitle || { lines: [], currentIndex: -1, visible: false, fontSize: 96 };
+  var subLines = Array.isArray(sub.lines) ? sub.lines : [];
+  var subText = (sub.visible === true && sub.currentIndex >= 0 && sub.currentIndex < subLines.length) ? String(subLines[sub.currentIndex] || '') : '';
+  var ov = outputsOverlay || { subtitle: { text: '', visible: false }, media: { type: '', url: '', active: false } };
+  return {
+    screen: {
+      displayMode: sc.displayMode || 'live',
+      fontSize: sc.fontSize || 72,
+      showStatus: sc.showStatus !== false, showChannels: sc.showChannels !== false,
+      showMusic: sc.showMusic !== false, showNotes: sc.showNotes !== false,
+      showNext: sc.showNext !== false, showProgress: sc.showProgress !== false,
+      programName: prog ? String(prog.name || '') : '',
+      status: prog ? String(prog.status || 'pending') : 'pending',
+      channels: prog && Array.isArray(prog.useChannels) ? prog.useChannels.slice() : [],
+      music: prog ? String(prog.musicCue || '') : '',
+      notes: prog ? String(prog.notes || '') : '',
+      nextName: next ? String(next.name || '') : '',
+      progress: { done: doneCount, total: (s.programs || []).length }
+    },
+    subtitle: {
+      lines: subLines.slice(), currentIndex: sub.currentIndex != null ? sub.currentIndex : -1,
+      visible: sub.visible === true, fontSize: typeof sub.fontSize === 'number' ? sub.fontSize : 96,
+      text: subText
+    },
+    overlay: ov
+  };
+}
+function broadcastOutputs() {
+  broadcast({ type: 'outputs_changed', outputs: buildOutputs(state) });
+}
+// cue 叠加层同步（O5）：服务端在 cue_triggered 时同步叠加层 + 定时清空
+var overlayTimers = {};
+function syncCueOverlay(cue) {
+  if (!cue) return;
+  var trackId = String(cue.trackId || '');
+  if (trackId !== 'subtitle') return;
+  var content = String(cue.label || '').trim();
+  outputsOverlay.subtitle = { text: content, visible: !!content };
+  if (overlayTimers[String(cue.id)]) { clearTimeout(overlayTimers[String(cue.id)]); delete overlayTimers[String(cue.id)]; }
+  var durationMs = Math.max(0, Number(cue.durationMs) || 0);
+  if (durationMs > 0) {
+    overlayTimers[String(cue.id)] = setTimeout(function() {
+      outputsOverlay.subtitle = { text: '', visible: false };
+      broadcastOutputs();
+      delete overlayTimers[String(cue.id)];
+    }, durationMs);
+  }
+  broadcastOutputs();
+}
+function masterLockPublic() {
+  var h = masterLockHolder;
+  return { mode: masterLockMode(), holder: h ? { role: h.role, serverType: h.serverType, label: h.label, acquiredAt: h.acquiredAt } : null };
+}
+function masterLockLabel(ws) {
+  var st = ws && ws.stageServerType;
+  if (st === "client-subtitleCtrl") return "字幕控制端";
+  if (st === "client-screenCtrl") return "提示屏控制端";
+  return "主控制端";
+}
+function broadcastMasterLock() {
+  broadcast({ type: "master_lock_changed", lock: masterLockPublic() });
+}
+function requireMasterLock(ws) {
+  if (ws.stageRole !== "control") return true;  // 锁只约束 control 角色多控制端（主/字幕/提示屏控制端），导演/助理等执行端不受限
+  if (masterLockMode() === "loose") return true;
+  if (masterLockHolder && masterLockHolder.ws === ws) return true;
+  sendTo(ws, { type: "master_lock_error", code: "LOCK_REQUIRED", message: masterLockHolder ? ("主控锁已被「" + masterLockHolder.label + "」持有，需先获取主控锁") : "当前为 strict 模式，关键操作需先获取主控锁" });
+  return false;
+}
+function acquireMasterLock(ws, role, force) {
+  if (masterLockHolder && masterLockHolder.ws !== ws && !force) {
+    sendTo(ws, { type: "master_lock_error", code: "LOCK_HELD", message: "主控锁已被「" + masterLockHolder.label + "」持有（获取失败，可点接管强制获取）" });
+    return false;
+  }
+  var isNew = !(masterLockHolder && masterLockHolder.ws === ws);
+  masterLockHolder = { ws: ws, role: role, serverType: ws.stageServerType || "", label: masterLockLabel(ws), acquiredAt: Date.now() };
+  if (isNew) broadcastMasterLock();
+  return true;
+}
+function releaseMasterLock() {
+  if (!masterLockHolder) return;
+  masterLockHolder = null;
+  broadcastMasterLock();
+}
+
 function handleMessage(ws, msg) {
   var role = ws.stageRole;
   var highRiskTypes = ["advance", "prev", "next", "set_current", "cue_trigger", "mode_switch_response"];
@@ -848,6 +1155,28 @@ function handleMessage(ws, msg) {
   if (/^project_/.test(msg.type) && !ws.unlocked) return sendError(ws, "forbidden", "unlock_required");
   switch (msg.type) {
     case "get_state": sendTo(ws, fullStatePayload()); break;
+    case "master_lock_acquire":
+      if (role !== "control") return sendError(ws, "forbidden", "master_lock_acquire");
+      acquireMasterLock(ws, role, msg.force === true);
+      sendTo(ws, { type: "master_lock_status", lock: masterLockPublic(), isHolder: masterLockHolder && masterLockHolder.ws === ws });
+      break;
+    case "master_lock_release":
+      if (masterLockHolder && masterLockHolder.ws === ws) releaseMasterLock();
+      sendTo(ws, { type: "master_lock_status", lock: masterLockPublic(), isHolder: false });
+      break;
+    case "master_lock_status":
+      sendTo(ws, { type: "master_lock_status", lock: masterLockPublic(), isHolder: masterLockHolder && masterLockHolder.ws === ws });
+      break;
+    case "master_lock_setmode":
+      if (role !== "control") return sendError(ws, "forbidden", "master_lock_setmode");
+      if (msg.mode === "strict" || msg.mode === "loose") {
+        state.masterLock = state.masterLock || {};
+        state.masterLock.mode = msg.mode;
+        commitState();
+        broadcastMasterLock();
+      } else sendError(ws, "invalid", "master_lock_setmode");
+      break;
+
     case "resume": sendResume(ws, msg); break;
     case "program_add":
       if (!hasPermission(role, "addDel")) return sendError(ws, "forbidden", "program_add");
@@ -873,6 +1202,8 @@ function handleMessage(ws, msg) {
       broadcastFullState(); break;
     case "update_state":
       if (role !== "control") return sendError(ws, "forbidden", "update_state");
+      // v7.3.0: 主控锁——提示屏设置为关键操作，strict 下需持锁
+      if (msg.data && msg.data.screenSettings && !requireMasterLock(ws)) return;
       if (msg.data && typeof msg.data === "object") {
         var previousMode = state.mode;
         var previousIndex = state.currentProgramIndex;
@@ -887,23 +1218,35 @@ function handleMessage(ws, msg) {
       } break;
     case "set_current":
       if (!hasPermission(role, "nav")) return sendError(ws, "forbidden", "set_current");
+      // v7.3.0: 主控锁——切节目为关键操作
+      if (!requireMasterLock(ws)) return;
       if (typeof msg.index === "number" && msg.index >= 0 && msg.index <= state.programs.length - 1) {
-        state.currentProgramIndex = msg.index;
-        if (state.programs[msg.index]) state.programs[msg.index].status = "active";
-        resetTimerForCurrent(shouldStartTimer("program_switch"));
-        commitState();
+        // P2-2: 统一走 activateProgram（同 index 不重启 runbook/autoAdvance）
+        activateProgram(msg.index, { timerReason: "program_switch", source: "manual" });
       } break;
     case "advance":
       if (!hasPermission(role, "nav")) return sendError(ws, "forbidden", "advance");
+      // v7.3.0: 主控锁——GO 为关键操作，strict 下需持锁
+      if (!requireMasterLock(ws)) return;
       try { doAdvance(); markCommandDone(msg); }
       catch (advanceError) { releaseCommandId(msg); throw advanceError; }
       break;
-    case "prev": if (!hasPermission(role, "nav")) return sendError(ws, "forbidden", "prev"); doNav(-1); break;
-    case "next": if (!hasPermission(role, "nav")) return sendError(ws, "forbidden", "next"); doNav(1); break;
+    case "prev":
+      if (!hasPermission(role, "nav")) return sendError(ws, "forbidden", "prev");
+      // v7.3.0: 主控锁——上一节目为关键操作
+      if (!requireMasterLock(ws)) return;
+      doNav(-1); break;
+    case "next":
+      if (!hasPermission(role, "nav")) return sendError(ws, "forbidden", "next");
+      // v7.3.0: 主控锁——下一节目为关键操作
+      if (!requireMasterLock(ws)) return;
+      doNav(1); break;
     case "reset_all":
       if (role !== "control") return sendError(ws, "forbidden", "reset_all");
       try {
         ensureHistorySnapshot(role, "reset_all");
+        // P2-2: 归零也取消当前 runbook/autoAdvance（index 变化）
+        activeProgramRunId++; cancelRunbookRun("reset_all"); cancelAutoAdvance("reset_all"); resetAutoAdvanceChain();
         state.programs.forEach(function(p) { p.status = "pending"; });
         state.currentProgramIndex = 0;
         if (state.programs[0]) state.programs[0].status = "active";
@@ -916,13 +1259,36 @@ function handleMessage(ws, msg) {
       if (typeof msg.idx === "number" && state.programs[msg.idx]) { state.programs[msg.idx].status = "pending"; commitState(); } break;
     case "update_program_field":
       if (!canEditField(role, msg.field)) return sendError(ws, "forbidden", "update_program_field");
-      if (typeof msg.idx === "number" && state.programs[msg.idx]) { state.programs[msg.idx][msg.field] = msg.value; commitState(); } break;
+      if (typeof msg.idx === "number" && state.programs[msg.idx]) {
+        // P2-2: runbook 字段经 normalizeRunbook 规范化再写入（静态校验即规范化）
+        if (msg.field === "runbook") { state.programs[msg.idx].runbook = normalizeRunbook(msg.value); }
+        else { state.programs[msg.idx][msg.field] = msg.value; }
+        commitState();
+      } break;
     case "import_programs":
       if (role !== "control") return sendError(ws, "forbidden", "import_programs");
       if (!Array.isArray(msg.programs) || msg.programs.length > 2000) return sendError(ws, "invalid", "import_programs");
       var newProgs = msg.programs.map(function(p) { return { name: String(p.name || "").slice(0, 10000), duration: p.duration || 0, rehearsalDurationMs: Math.max(0, Math.min(86400000, parseInt(p.rehearsalDurationMs) || 0)), notes: String(p.notes || "").slice(0, 10000), musicCue: String(p.musicCue || "").slice(0, 10000), status: p.status || "pending", useChannels: Array.isArray(p.useChannels) ? p.useChannels.slice(0, 200) : [] }; });
-      if (msg.mode === "replace") { state.programs = newProgs; state.currentProgramIndex = 0; resetTimerForCurrent(false); } else { state.programs = state.programs.concat(newProgs); }
+      if (msg.mode === "replace") { activeProgramRunId++; cancelRunbookRun("replace_programs"); cancelAutoAdvance("replace_programs"); resetAutoAdvanceChain(); state.programs = newProgs; state.currentProgramIndex = 0; resetTimerForCurrent(false); } else { state.programs = state.programs.concat(newProgs); }
       commitState(); break;
+    case "overlay_update":
+      // P2-1 统一输出面：叠加层更新（仅 control；runbook/控制端手动操作叠加层）
+      if (role !== "control") return sendError(ws, "forbidden", "overlay_update");
+      try {
+        if (msg.overlay && typeof msg.overlay === "object") {
+          var ovSub = msg.overlay.subtitle;
+          if (ovSub && typeof ovSub === "object") {
+            var ovText = String(ovSub.text || '').slice(0, 2000);
+            outputsOverlay.subtitle = { text: ovText, visible: !!ovText && ovSub.visible !== false };
+          }
+          var ovMedia = msg.overlay.media;
+          if (ovMedia && typeof ovMedia === "object") {
+            outputsOverlay.media = { type: String(ovMedia.type || '').slice(0, 20), url: String(ovMedia.url || '').slice(0, 2000), active: !!ovMedia.active };
+          }
+          broadcastOutputs();
+        }
+      } catch (overlayErr) { throw overlayErr; }
+      break;
     case "reorder_programs":
       if (!hasPermission(role, "addDel")) return sendError(ws, "forbidden", "reorder_programs");
       if (!Array.isArray(msg.programs)) return sendError(ws, "invalid", "reorder_programs");
@@ -978,7 +1344,8 @@ function handleMessage(ws, msg) {
       if (!cue) return sendError(ws, "invalid", "cue_trigger");
       markCueTriggered(cue);
       logAction(role, "cue_trigger: " + (cue.label || cue.id));
-      broadcast({ type: "cue_triggered", cue: cue, at: new Date().toISOString() }); break;
+      broadcast({ type: "cue_triggered", cue: cue, at: new Date().toISOString() });
+      syncCueOverlay(cue); break;
     case "task_ack":
       if (!hasPermission(role, "nav")) return sendError(ws, "forbidden", "task_ack");
       var task = state.timeline.cues.filter(function(c) { return c.id === msg.cueId; })[0];
@@ -1172,21 +1539,12 @@ function handleMessage(ws, msg) {
 function doAdvance() {
   // WebSocket handleMessage 已在此操作前 pushHistory；直达入口则由此补齐。
   ensureHistorySnapshot("system", "advance");
-  var idx = state.currentProgramIndex;
-  if (idx >= 0 && idx < state.programs.length) state.programs[idx].status = "completed";
-  var nextIdx = Math.min(idx + 1, Math.max(0, state.programs.length - 1));
-  state.currentProgramIndex = nextIdx;
-  if (state.programs[nextIdx] && state.programs[nextIdx].status !== "completed") state.programs[nextIdx].status = "active";
-  resetTimerForCurrent(shouldStartTimer("go"));
-  commitState();
+  activateProgram(state.currentProgramIndex + 1, { completeCurrent: true, timerReason: "go", source: "manual" });
 }
 function doNav(dir) {
   var idx = state.currentProgramIndex;
   var newIdx = idx + dir; if (newIdx < 0) newIdx = 0; if (newIdx > state.programs.length - 1) newIdx = Math.max(0, state.programs.length - 1);
-  state.currentProgramIndex = newIdx;
-  if (state.programs[newIdx] && state.programs[newIdx].status !== "completed") state.programs[newIdx].status = "active";
-  resetTimerForCurrent(shouldStartTimer("program_switch"));
-  commitState();
+  activateProgram(newIdx, { timerReason: "program_switch", source: "manual" });
 }
 // sendTo / sendError / MIME 来自 lib/server-shared.js
 function cueTriggeredIds() { return Object.keys(automaticCueTriggered).filter(function(id){ return automaticCueTriggered[id]; }); }
@@ -1195,7 +1553,7 @@ var broadcasters = createBroadcasters({
   getServers: function() { return allWebSocketServers; },
   getState: function() { return state; },
   getClientCount: function() { return connectionCount(); },
-  getExtraFields: function() { return { cueTriggeredIds: cueTriggeredIds() }; },
+  getExtraFields: function() { return { cueTriggeredIds: cueTriggeredIds(), outputs: buildOutputs(state) }; },
   getEventMeta: function(obj) {
     if (obj.type === "client_count") return null;
     return { seq: ++eventSequence, serverInstanceId: serverInstanceId };
@@ -1763,11 +2121,20 @@ function serveRequest(req, res, serverType) {
       clientPortOverride: CLIENT_PORT_ENV_OVERRIDE,
       entryPortOverride: ENTRY_PORT_ENV_OVERRIDE,
       screenPortOverride: SCREEN_PORT_ENV_OVERRIDE,
-      downloadBaseUrl: makeBaseUrl(req)
+      downloadBaseUrl: makeBaseUrl(req),
+      // v7.2.1-P1: 屏幕在线计数（只增不改，向后兼容；lite 无字幕端故 subtitle 计数恒 0）
+      screenClients: {
+        subtitleScreen: 0,
+        screen: screenClientStats.screen,
+        subtitleCtrl: 0,
+        screenCtrl: screenClientStats.screenCtrl
+      }
     };
     var requestRole = getRequestRole(req, serverType);
     if (requestRole) info.permissions = permissionsForRole(requestRole);
-    if (isControlServer && requestRole === "control") {
+    // v7.6.0-P4: 提示屏/字幕控制端(独立端口)也返回 links，解决"无法读取提示屏链接"
+    var isCtrlLikeServer = isControlServer || serverType === "client-subtitleCtrl" || serverType === "client-screenCtrl";
+    if (isCtrlLikeServer && requestRole === "control") {
       info.links = buildAccessLinks(linkHost);
       info.passwordStatus = passwordStatus();
       info.passwordLinkTemplates = buildPasswordLinkTemplates(linkHost);

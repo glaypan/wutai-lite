@@ -1,4 +1,47 @@
 # wutai 舞台流程表 wutai-lite 变更记录
+## 版本：1.5.0（2026-08-20）控制端修复
+- 主控锁+runbook 横幅并入顶部状态栏居中固定（不再遮挡标题/按钮；ctrl-mode 下主控锁随横幅、runbook 隐藏）
+- ctrl-mode 专注界面隐藏残留「返回执行台」按钮
+- 修复提示屏控制端「无法读取提示屏链接」（server-info links 放行 client-screenCtrl）
+- 修复登录后 ctrlMode 参数丢失（登录跳转保留 ctrlMode）
+- 入口页补「🖥️ 显示终端→提示屏」卡片（此前入口只 5 张工作端卡）
+- 修复 ctrl-mode 下控制端 header 残留显示（CSS 选择器 header.app-header→header.header）
+- 入口页图标 i-display 未定义修复（统一改 i-prompt）
+
+## 版本：1.4.0（2026-08-20）runbook 流程编排
+- 节目级 runbook：进入节目时按 delaySec 绝对秒数排队执行动作序列（lite 白名单裁剪为 screen_mode/clear 2 动作 + autoAdvance，无字幕/无 Tally 基础设施）
+- 服务端唯一 runbookTimer + programRunId 生命周期管理（切节目/手动接管取消旧 run，runId 幂等防残留）
+- autoAdvance 自动推进：唯一 timer + 手动关键操作优先取消 + 熔断（min 5s + 连续自动推进链 ≤5 暂停告警）
+- 编辑面板「📋 runbook 流程编排」配置区（仅 control）+ 控制端/导演端 runbook banner（执行中闪烁）
+- 白名单规范化并入 mergeState（双端同构，静态校验即规范化，老数据零迁移）；审计 runbook_executed / runbook_state_changed 广播
+
+## 版本：1.3.0（2026-08-20）统一输出面
+- 统一输出面（output surfaces）：提示屏/字幕屏/叠加层同一状态模型，服务端 buildOutputs 派生统一快照（screen/subtitle/overlay）
+- full_state 带 outputs 快照；新增 outputs_changed 广播（叠加层变化即时同步）
+- 新增 overlay_update（仅 control）：控制端/runbook 可手动设置叠加层（字幕/媒体）
+- cue 字幕叠加层服务端化：cue 触发自动同步叠加层 + 按 durationMs 自动清空
+- 前端统一渲染入口 renderOutputs + 叠加层渲染 renderOverlay
+
+## 版本：1.2.0（2026-08-20）主控锁
+- 主控锁（strict 默认）：多控制端协同，GO/切节目/字幕跳句/清空/提示屏设置须先持锁；服务端权威拦截；持锁者掉线自动释放；loose 模式兼容现状
+- 主控锁条（控制端右上角）：获取/释放/接管 + strict/loose 一键切换
+
+## 版本：1.1.7（2026-08-20）
+### ✨ 新增：提示屏控制端 P1 优化（与正式版 7.2.1 同步，lite 无字幕端）
+- ✨ 新增：屏幕状态总览（提示屏在线数 + 模式 + 连接态，WS 断开自动禁操作+红条提示）
+- 🐛 修复：提示屏控制端 modal-box 顶部 padding 适配状态条（40px→64px）
+## 版本：1.1.6（2026-08-20）
+### 🐛 修复 + ✨ 增强：提示屏控制端 P0 优化（与正式版 7.2.0 同步，lite 无字幕端）
+- 🐛 修复：ctrl-mode 下弹窗 ✕ 关闭按钮失效（CSS 特异性提权）
+- 🐛 修复：「← 返回入口页」跳错（动态取 entryPort 回 18088）
+- ✨ 新增：提示屏设置生效模型二分（字号/显示项草稿态 + 「有未应用修改」提示）
+# wutai 舞台流程表 wutai-lite 变更记录
+
+## 版本：1.1.5（2026-08-20）
+
+### 🎨 提示屏控制端弹窗三区升级（与正式版 7.1.2 同步）
+- **modal-screen-setting 升级 console-modal 三区**：header 固定 / 内容独立滚动 / 「关闭·保存」按钮固定底部
+- 验证：桌面/手机端三区 rect 正确，提示屏控制端正常
 
 ## 版本：1.1.4（2026-08-20）
 

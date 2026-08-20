@@ -1308,19 +1308,23 @@ body[data-role] .role-badge { background:color-mix(in srgb, var(--role-accent) 1
   text-align:center; font-size:24px; color:#6b7280;
 }
 /* v6.6.0: 方案B 独立操作客户端 —— ctrlMode 专注界面（提示屏控制端） */
-body.ctrl-mode header.app-header,
+body.ctrl-mode header.header,
 body.ctrl-mode .main-layout,
 body.ctrl-mode #mobile-bottom-nav,
 body.ctrl-mode #client-dispatch,
 body.ctrl-mode #landscape-entry-bar,
 body.ctrl-mode .screen-view { display:none !important; }
+/* v7.6.0-P3: ctrl-mode 专注界面隐藏残留的返回执行台按钮（点击无效且遮挡） */
+body.ctrl-mode #exec-back-btn { display:none !important; }
 body.ctrl-mode #modal-screen-setting { display:flex !important; }
+/* v7.2.0-P0: ✕ 关闭按钮修复——ctrl-mode 强制 flex 与 .hidden 同 !important 时比特异性，需提权 */
+body.ctrl-mode #modal-screen-setting.hidden { display:none !important; }
 body.ctrl-mode #modal-screen-setting .modal-box {
   position:fixed !important; inset:0 !important; max-width:none !important;
   width:100% !important; height:100% !important; max-height:none !important;
   margin:0 !important; border-radius:0 !important;
 }
-body.ctrl-mode #modal-screen-setting .modal-box { padding:24px; padding-top:calc(40px + env(safe-area-inset-top)); }
+body.ctrl-mode #modal-screen-setting .modal-box { padding:24px; padding-top:calc(64px + env(safe-area-inset-top)); }
 /* 专注界面上方固定提示条 */
 body.ctrl-mode .ctrl-mode-banner {
   position:fixed; top:0; left:0; right:0; z-index:99999;
@@ -1331,7 +1335,25 @@ body.ctrl-mode .ctrl-mode-banner {
 }
 body.ctrl-mode .ctrl-mode-banner a { color:var(--ios-blue); text-decoration:none; }
 body.ctrl-mode .ctrl-mode-banner a:hover { text-decoration:underline; }
-body.ctrl-mode #modal-screen-setting .modal-box { padding-top:calc(40px + env(safe-area-inset-top)); }
+/* v7.2.1-P1: 屏幕状态总览条 + 断线禁操作（lite 提示屏控制端） */
+body.ctrl-mode .ctrl-status-bar {
+  position:fixed; top:34px; left:0; right:0; z-index:99998;
+  background:#1a1f2e; color:#c8cdd8; font-size:11px;
+  padding:3px 12px; display:flex; gap:14px; align-items:center;
+  border-bottom:1px solid rgba(255,255,255,0.06);
+  height:24px; white-space:nowrap; overflow-x:auto;
+}
+body.ctrl-mode .ctrl-status-bar .cs-item { flex:0 0 auto; }
+body.ctrl-mode .ctrl-status-bar .cs-ws { margin-left:auto; color:#30d158; }
+body.ctrl-mode .ctrl-status-bar .cs-ws.off { color:#ff453a; }
+body.ctrl-mode .ctrl-ws-alert {
+  position:fixed; top:58px; left:0; right:0; z-index:99997;
+  background:rgba(255,69,58,0.92); color:#fff; font-size:12px; font-weight:600;
+  padding:4px 12px; text-align:center; display:none;
+}
+body.ctrl-mode.ws-off .ctrl-ws-alert { display:block; }
+body.ctrl-mode.ws-off .btn { pointer-events:none !important; opacity:.5 !important; }
+body.ctrl-mode #modal-screen-setting .modal-box { padding-top:calc(64px + env(safe-area-inset-top)); }
 .screen-view .screen-next-preview {
   position:fixed; bottom:80px; left:0; width:100%;
   text-align:center; font-size:26px; color:#9ca3af;
@@ -2357,6 +2379,23 @@ body.mode-setup .completed-check-icon { cursor:pointer; pointer-events:auto; }
             <textarea id="edit-notes" class="text-input textarea" placeholder="舞台、灯光、演员提示"></textarea>
           </div>
 
+          <div class="form-group runbook-box" id="edit-runbook-group">
+            <label style="display:flex;align-items:center;gap:8px;font-weight:700">📋 runbook 流程编排
+              <span style="font-weight:400;color:var(--apple-text-tertiary,#777);font-size:12px">进入本节目时自动执行</span>
+            </label>
+            <div id="edit-runbook-rows" style="display:flex;flex-direction:column;gap:6px;"></div>
+            <button type="button" class="btn btn-secondary" id="edit-runbook-add-btn" onclick="addEditRunbookRow()" style="margin-top:6px;">＋ 添加动作</button>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap;">
+              <label style="display:flex;align-items:center;gap:6px;font-weight:500">
+                <input type="checkbox" id="edit-runbook-aa-enabled"> 自动推进到下一节目
+              </label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:13px;color:var(--apple-text-tertiary,#777);">
+                秒数
+                <input type="number" id="edit-runbook-aa-sec" class="text-input" min="5" max="3600" step="1" value="30" style="width:76px;">
+              </label>
+              <span style="font-size:12px;color:var(--apple-text-tertiary,#777);">开启时 ≥5 秒（防误触），连续自动推进 ≤5 节目后暂停告警</span>
+            </div>
+          </div>
 
           <div class="edit-actions">
             <button class="btn btn-danger" id="delete-program-btn" onclick="deleteProgram()">🗑 删除节目</button>
@@ -2415,7 +2454,10 @@ body.mode-setup .completed-check-icon { cursor:pointer; pointer-events:auto; }
             <div id="screen-mode-status" style="font-size:12px;color:var(--text-3);margin-top:8px">当前：直播</div>
           </div>
 
-          <!-- 字号设置 -->
+          <!-- v7.2.0-P0: 未保存修改提示 -->
+          <div id="screen-settings-dirty" style="display:none;background:rgba(255,204,0,0.12);border:1px solid rgba(255,204,0,0.4);border-radius:8px;padding:8px 12px;font-size:13px;color:#ffd60a;margin-bottom:16px">⚠️ 字号/显示设置有未保存修改，点「������ 保存设置」后生效</div>
+
+<!-- 字号设置 -->
           <div style="margin-bottom:16px">
             <div style="font-size:14px;font-weight:600;margin-bottom:8px">节目名称字号</div>
             <div style="display:flex;gap:8px;align-items:center">
@@ -2429,22 +2471,22 @@ body.mode-setup .completed-check-icon { cursor:pointer; pointer-events:auto; }
             <div style="font-size:14px;font-weight:600;margin-bottom:8px">显示内容</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
               <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-                <input type="checkbox" id="screen-show-status" checked onchange="applyScreenSetting()"> <span>状态标签</span>
+                <input type="checkbox" id="screen-show-status" checked onchange="applyScreenSetting();markScreenSettingsDirty()"> <span>状态标签</span>
               </label>
               <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-                <input type="checkbox" id="screen-show-channels" checked onchange="applyScreenSetting()"> <span>通道标签</span>
+                <input type="checkbox" id="screen-show-channels" checked onchange="applyScreenSetting();markScreenSettingsDirty()"> <span>通道标签</span>
               </label>
               <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-                <input type="checkbox" id="screen-show-music" checked onchange="applyScreenSetting()"> <span>音乐节点</span>
+                <input type="checkbox" id="screen-show-music" checked onchange="applyScreenSetting();markScreenSettingsDirty()"> <span>音乐节点</span>
               </label>
               <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-                <input type="checkbox" id="screen-show-notes" checked onchange="applyScreenSetting()"> <span>备注</span>
+                <input type="checkbox" id="screen-show-notes" checked onchange="applyScreenSetting();markScreenSettingsDirty()"> <span>备注</span>
               </label>
               <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-                <input type="checkbox" id="screen-show-next" checked onchange="applyScreenSetting()"> <span>下一节目预览</span>
+                <input type="checkbox" id="screen-show-next" checked onchange="applyScreenSetting();markScreenSettingsDirty()"> <span>下一节目预览</span>
               </label>
               <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-                <input type="checkbox" id="screen-show-progress" checked onchange="applyScreenSetting()"> <span>进度统计</span>
+                <input type="checkbox" id="screen-show-progress" checked onchange="applyScreenSetting();markScreenSettingsDirty()"> <span>进度统计</span>
               </label>
             </div>
           </div>
@@ -2931,6 +2973,9 @@ let localState = {
   },
   programs: [],
   screenSettings: { fontSize: 72, showStatus: true, showChannels: true, showMusic: true, showNotes: true, showNext: true, showProgress: true, displayMode: 'live' },
+
+  masterLock: { mode: 'strict' },
+  outputs: null,
   timeline: { tracks: [], cues: [] },
   timingSettings: { enabled: false, phase: 'rehearsal', autoCue: false, preferRehearsal: true },
   theme: null,
@@ -2962,8 +3007,47 @@ if (CTRL_MODE === 'screen') {
   var ctrlBanner = document.createElement('div');
   ctrlBanner.className = 'ctrl-mode-banner';
   ctrlBanner.innerHTML = '<span>🎛️ ' + '提示屏控制端' + '</span>' +
-    '<a href="/" style="margin-left:auto">← 返回入口页</a>';
+    '<a id="ctrl-back-link" href="http://' + (location.hostname || 'localhost') + ':' + (cachedEntryPort || 18088) + '/" style="margin-left:auto">← 返回入口页</a>';
+  // v7.2.0-P0: 用 server-info 校正返回入口链接（独立端口回不到 18088 入口）
+  try {
+    fetch('/api/server-info', { headers: authHeaders() })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d && d.entryPort) {
+          var bl = document.getElementById('ctrl-back-link');
+          if (bl) bl.href = 'http://' + (d.ip || location.hostname || 'localhost') + ':' + d.entryPort + '/';
+        }
+      }).catch(function() {});
+  } catch (e) {}
   document.body.insertBefore(ctrlBanner, document.body.firstChild);
+  // v7.2.1-P1: 屏幕状态总览（提示屏在线 + 模式 + 连接态，5s 轮询 server-info）
+  var ctrlAlert = document.createElement('div');
+  ctrlAlert.className = 'ctrl-ws-alert';
+  ctrlAlert.textContent = '⚠️ 连接已断开，操作已禁用';
+  document.body.insertBefore(ctrlAlert, ctrlBanner.nextSibling);
+  var ctrlStatus = document.createElement('div');
+  ctrlStatus.className = 'ctrl-status-bar';
+  ctrlStatus.innerHTML = '<span class="cs-item" id="cs-screen">🖥 提示屏 …</span>' +
+    '<span class="cs-item" id="cs-mode">🎛 模式 …</span>' +
+    '<span class="cs-item cs-ws" id="cs-ws">● 已连接</span>';
+  document.body.insertBefore(ctrlStatus, ctrlAlert.nextSibling);
+  window.pollScreenStatus = function() {
+    var elW = document.getElementById('cs-ws');
+    if (elW) { elW.textContent = document.body.classList.contains('ws-off') ? '✕ 已断开' : '● 已连接'; elW.className = 'cs-item cs-ws' + (document.body.classList.contains('ws-off') ? ' off' : ''); }
+    try {
+      fetch('/api/server-info', { headers: authHeaders() })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          var sc = (d && d.screenClients) || {};
+          var el2 = document.getElementById('cs-screen');
+          if (el2) el2.textContent = '🖥 提示屏 ' + ((sc.screen || 0) > 0 ? '●在线' : '○离线');
+        }).catch(function() {});
+    } catch (e) {}
+    var el4 = document.getElementById('cs-mode');
+    if (el4) el4.textContent = '🎛 模式 ' + ((typeof localState !== 'undefined' && localState.mode === 'performance') ? '现场' : ((typeof localState !== 'undefined' && localState.mode === 'setup') ? '设置' : ((typeof localState !== 'undefined' && localState.mode) || '…')));
+  };
+  window.pollScreenStatus();
+  setInterval(window.pollScreenStatus, 5000);
 }
 var cachedAccessLinks = null;
 function authHeaders(extra) {
@@ -3087,15 +3171,18 @@ function tryConnectWS(backgroundOnly) {
       wsMode = true;
       connectionState = 'connected';
       reconnectAttempt = 0;
+      document.body.classList.remove('ws-off');
       setConnConnected(true);
       setConnText("已连接 " + new Date().toTimeString().slice(0,8));
       var connIpEl = document.getElementById('conn-ip');
       if (connIpEl) connIpEl.textContent = location.host;
       requestResume();
+      if (window.pollScreenStatus) window.pollScreenStatus();
     };
     ws.onclose = () => {
       if (wsMode) {
         wsMode = false;
+        document.body.classList.add('ws-off');
         setConnConnected(false);
         setConnText("连接中断");
         var connIpEl = document.getElementById('conn-ip');
@@ -3111,7 +3198,28 @@ function tryConnectWS(backgroundOnly) {
       try { data = JSON.parse(ev.data); } catch(e) { return; }
       if (!applyRecoveryEnvelope(data, ws.onmessage)) return;
       switch (data.type) {
+        case "master_lock_changed":
+          if (data.lock) { masterLockState.mode = data.lock.mode || masterLockState.mode; masterLockState.holder = data.lock.holder || null; masterLockState.selfHeld = false; }
+          masterLockRender();
+          break;
+        case "master_lock_status":
+          if (data.lock) { masterLockState.mode = data.lock.mode || masterLockState.mode; masterLockState.holder = data.lock.holder || null; masterLockState.selfHeld = data.isHolder === true; }
+          masterLockRender();
+          break;
+        case "outputs_changed":
+          if (data.outputs) { localState.outputs = data.outputs; renderOutputs(); }
+          break;
+        case "runbook_state_changed":  // P2-2: runbook banner 状态
+          runbookBannerUpdate(data);
+          break;
+        case "runbook_executed":  // P2-2: 单条动作执行（banner 已由 state_changed 驱动，此处可选 toast）
+          if (data.status === "failed" && typeof showToast === "function") showToast("runbook 动作失败: " + (data.action || "") + (data.reason ? " · " + data.reason : ""));
+          break;
+        case "master_lock_error":
+          if (typeof showToast === "function") showToast(data.message || "需先获取主控锁");
+          break;
         case "full_state":
+
           if (!applyPermissionsVersion(data)) break;
           // backgroundOnly 模式下仅当本地无数据时接受 full_state
           if (backgroundOnly && localState.programs && localState.programs.length > 0) {
@@ -3125,9 +3233,15 @@ function tryConnectWS(backgroundOnly) {
             }
             _realMode = localState.mode;
             renderAll();
+            // P2-2: runbook banner 随 full_state 刷新（显示当前节目配置）
+            if (typeof runbookBannerRender === "function") runbookBannerRender();
             // v6.5.1 品牌主题：full_state 后应用主题
             if (localState.theme) applyTheme(localState.theme);
           }
+          // P2-1: 统一输出面快照随 full_state 同步
+          if (data.outputs) localState.outputs = data.outputs;
+          // v7.3.0: 主控锁状态随 full_state 同步
+          if (data.masterLock) { masterLockState.mode = data.masterLock.mode || masterLockState.mode; masterLockState.holder = data.masterLock.holder || null; masterLockRender(); }
           if (data.clientCount !== undefined) updateClientCount(data.clientCount);
           break;
         case "client_count":
@@ -3369,6 +3483,170 @@ function ensureChannel(ch) {
 }
 
 // 状态合并（兼容旧数据，确保新字段存在）
+// P2-2: runbook 前端规范化（与后端 normalizeRunbook 同构；白名单过滤 + clamp；防重载丢字段）
+var RUNBOOK_ACTIONS_FRONT = ["screen_mode", "clear"]; // lite 精简版：无字幕/无Tally
+var RUNBOOK_ACTIONS_LABEL = { subtitle_goto: "字幕跳转", subtitle_show: "显示字幕", subtitle_hide: "隐藏字幕", tally: "Tally 提醒", screen_mode: "提示屏模式", clear: "清空字幕" };
+var RUNBOOK_ROLES_FRONT = ["assistant", "backstage", "console", "director", "all"];
+var RUNBOOK_SCREEN_MODES_FRONT = ["live", "standby", "blackout", "freeze", "test"];
+function normalizeRunbookFront(rb) {
+  var src = rb && typeof rb === 'object' ? rb : {};
+  var onEnter = Array.isArray(src.onEnter) ? src.onEnter.slice(0, 50) : [];
+  var actions = [];
+  onEnter.forEach(function(a) {
+    if (!a || typeof a !== 'object') return;
+    var action = String(a.action || '');
+    if (RUNBOOK_ACTIONS_FRONT.indexOf(action) < 0) return;
+    var item = { action: action, delaySec: isFinite(parseInt(a.delaySec, 10)) ? Math.max(0, Math.min(300, parseInt(a.delaySec, 10))) : 0 };
+    if (action === 'subtitle_goto') {
+      item.index = isFinite(parseInt(a.index, 10)) ? parseInt(a.index, 10) : 0;
+    } else if (action === 'tally') {
+      var roles = Array.isArray(a.roles) ? a.roles.filter(function(r) { return RUNBOOK_ROLES_FRONT.indexOf(r) >= 0; }) : [];
+      if (!roles.length) roles = ['assistant'];
+      item.roles = roles;
+    } else if (action === 'screen_mode') {
+      item.mode = RUNBOOK_SCREEN_MODES_FRONT.indexOf(a.mode) >= 0 ? a.mode : 'live';
+    }
+    actions.push(item);
+  });
+  var autoAdvanceSec = isFinite(parseInt(src.autoAdvanceSec, 10)) ? parseInt(src.autoAdvanceSec, 10) : 0;
+  if (autoAdvanceSec !== 0) autoAdvanceSec = Math.max(5, Math.min(3600, autoAdvanceSec));
+  return { onEnter: actions, autoAdvance: src.autoAdvance === true, autoAdvanceSec: autoAdvanceSec };
+}
+// P2-2: runbook 编辑行渲染/收集（F2~F4）
+var editRunbookSeq = 0;
+function buildRunbookRow(item) {
+  var row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:rgba(10,132,255,0.06);border:1px solid rgba(10,132,255,0.25);border-radius:8px;padding:5px 8px;';
+  var sel = document.createElement('select');
+  sel.setAttribute('data-rb-action', '1');
+  sel.style.cssText = 'min-width:130px;border-radius:6px;border:1px solid var(--border);background:var(--bg-1);color:var(--text-1);padding:3px 5px;font-size:13px;';
+  RUNBOOK_ACTIONS_FRONT.forEach(function(act) {
+    var opt = document.createElement('option');
+    opt.value = act;
+    opt.textContent = RUNBOOK_ACTIONS_LABEL[act] || act;
+    if (item && item.action === act) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  sel.onchange = function() { renderRunbookRowParam(row); };
+  row.appendChild(sel);
+  var paramWrap = document.createElement('span');
+  paramWrap.style.cssText = 'display:flex;gap:4px;align-items:center;';
+  row.appendChild(paramWrap);
+  var delay = document.createElement('input');
+  delay.type = 'number';
+  delay.min = '0'; delay.max = '300'; delay.step = '1';
+  delay.setAttribute('data-rb-delay', '1');
+  delay.value = item ? (item.delaySec || 0) : 0;
+  delay.style.cssText = 'width:62px;border-radius:6px;border:1px solid var(--border);background:var(--bg-1);color:var(--text-1);padding:3px 5px;font-size:13px;';
+  var delayLabel = document.createElement('span');
+  delayLabel.style.cssText = 'color:var(--apple-text-tertiary,#777);font-size:12px;';
+  delayLabel.textContent = '延迟s';
+  row.appendChild(delay);
+  row.appendChild(delayLabel);
+  var delBtn = document.createElement('button');
+  delBtn.type = 'button';
+  delBtn.className = 'btn btn-secondary';
+  delBtn.textContent = '✕';
+  delBtn.style.cssText = 'padding:3px 8px;font-size:13px;';
+  delBtn.onclick = function() { row.remove(); };
+  row.appendChild(delBtn);
+  row.__rbItem = item || { action: RUNBOOK_ACTIONS_FRONT[0], delaySec: 0 };
+  renderRunbookRowParam(row);
+  return row;
+}
+function renderRunbookRowParam(row) {
+  var sel = row.querySelector('[data-rb-action]');
+  var wrap = row.querySelector('span');
+  wrap.innerHTML = '';
+  var action = sel.value;
+  if (action === 'subtitle_goto') {
+    var idxInput = document.createElement('input');
+    idxInput.type = 'number'; idxInput.min = '-1'; idxInput.step = '1';
+    idxInput.setAttribute('data-rb-param-index', '1');
+    idxInput.value = (row.__rbItem && row.__rbItem.index !== undefined) ? row.__rbItem.index : 0;
+    idxInput.style.cssText = 'width:62px;border-radius:6px;border:1px solid var(--border);background:var(--bg-1);color:var(--text-1);padding:3px 5px;font-size:13px;';
+    var lab = document.createElement('span');
+    lab.style.cssText = 'color:var(--apple-text-tertiary,#777);font-size:12px;';
+    lab.textContent = '行号';
+    wrap.appendChild(idxInput); wrap.appendChild(lab);
+  } else if (action === 'tally') {
+    var roleSel = document.createElement('select');
+    roleSel.setAttribute('data-rb-param-roles', '1');
+    roleSel.style.cssText = 'min-width:96px;border-radius:6px;border:1px solid var(--border);background:var(--bg-1);color:var(--text-1);padding:3px 5px;font-size:13px;';
+    RUNBOOK_ROLES_FRONT.forEach(function(r) {
+      var opt = document.createElement('option');
+      opt.value = r;
+      opt.textContent = ({ assistant: '助理', backstage: '幕后', console: '控台', director: '导演', all: '全部' })[r] || r;
+      if (row.__rbItem && row.__rbItem.roles && row.__rbItem.roles.indexOf(r) >= 0) opt.selected = true;
+      roleSel.appendChild(opt);
+    });
+    wrap.appendChild(roleSel);
+  } else if (action === 'screen_mode') {
+    var modeSel = document.createElement('select');
+    modeSel.setAttribute('data-rb-param-mode', '1');
+    modeSel.style.cssText = 'min-width:96px;border-radius:6px;border:1px solid var(--border);background:var(--bg-1);color:var(--text-1);padding:3px 5px;font-size:13px;';
+    RUNBOOK_SCREEN_MODES_FRONT.forEach(function(m) {
+      var opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = ({ live: '直播', standby: '待机', blackout: '黑屏', freeze: '定格', test: '测试' })[m] || m;
+      if (row.__rbItem && row.__rbItem.mode === m) opt.selected = true;
+      modeSel.appendChild(opt);
+    });
+    wrap.appendChild(modeSel);
+  } else {
+    var dash = document.createElement('span');
+    dash.style.cssText = 'color:var(--apple-text-tertiary,#777);font-size:12px;';
+    dash.textContent = '—';
+    wrap.appendChild(dash);
+  }
+}
+window.addEditRunbookRow = function() {
+  var container = document.getElementById('edit-runbook-rows');
+  if (!container) return;
+  container.appendChild(buildRunbookRow(null));
+};
+window.fillEditRunbook = function(program) {
+  var container = document.getElementById('edit-runbook-rows');
+  var aaEnabled = document.getElementById('edit-runbook-aa-enabled');
+  var aaSec = document.getElementById('edit-runbook-aa-sec');
+  if (!container) return;
+  container.innerHTML = '';
+  var rb = program && program.runbook ? program.runbook : { onEnter: [], autoAdvance: false, autoAdvanceSec: 0 };
+  (rb.onEnter || []).forEach(function(item) { container.appendChild(buildRunbookRow(item)); });
+  if (aaEnabled) aaEnabled.checked = rb.autoAdvance === true;
+  if (aaSec) aaSec.value = (rb.autoAdvanceSec > 0) ? rb.autoAdvanceSec : 30;
+};
+window.collectEditRunbook = function() {
+  var container = document.getElementById('edit-runbook-rows');
+  var onEnter = [];
+  if (container) {
+    var rows = container.children;
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      if (!row || typeof row.querySelector !== 'function') continue;
+      var sel = row.querySelector('[data-rb-action]');
+      if (!sel) continue;
+      var action = sel.value;
+      var item = { action: action, delaySec: Math.max(0, Math.min(300, parseInt((row.querySelector('[data-rb-delay]') || {}).value, 10) || 0)) };
+      if (action === 'subtitle_goto') {
+        item.index = parseInt((row.querySelector('[data-rb-param-index]') || {}).value, 10);
+        if (!isFinite(item.index)) item.index = 0;
+      } else if (action === 'tally') {
+        var rv = (row.querySelector('[data-rb-param-roles]') || {}).value || 'assistant';
+        item.roles = [rv];
+      } else if (action === 'screen_mode') {
+        item.mode = (row.querySelector('[data-rb-param-mode]') || {}).value || 'live';
+      }
+      onEnter.push(item);
+    }
+  }
+  var aaEnabled = document.getElementById('edit-runbook-aa-enabled');
+  var aaSec = document.getElementById('edit-runbook-aa-sec');
+  var sec = parseInt((aaSec || {}).value, 10);
+  if (!isFinite(sec) || sec <= 0) sec = 0;
+  if (sec !== 0) sec = Math.max(5, Math.min(3600, sec));
+  return { onEnter: onEnter, autoAdvance: !!(aaEnabled && aaEnabled.checked), autoAdvanceSec: (aaEnabled && aaEnabled.checked) ? sec : 0 };
+};
 function mergeState(s) {
   var oldVersion = s.version || 1;
   var merged = {
@@ -3390,7 +3668,9 @@ function mergeState(s) {
         notes: p.notes || "",
         musicCue: mergeMusicField(p),
         status: status,
-        useChannels: p.useChannels || (p.mics ? p.mics.filter(function(m){return m.active;}).map(function(m){return m.name;}) : [])
+        useChannels: p.useChannels || (p.mics ? p.mics.filter(function(m){return m.active;}).map(function(m){return m.name;}) : []),
+        // P2-2: runbook 流程编排（与后端 normalizeRunbook 同构，防重载丢字段/非法动作）
+        runbook: normalizeRunbookFront(p.runbook)
       };
     })
   };
@@ -3452,6 +3732,8 @@ function mergeState(s) {
   merged.globalChannels.lines = merged.globalChannels.lines.map(ensureChannel);
   // 通道类型持久化
   merged.channelTypes = normalizeChannelTypes(s.channelTypes);
+  // v7.3.0: 主控锁模式保留（服务端 state.masterLock）
+  if (s.masterLock && typeof s.masterLock === "object") merged.masterLock = s.masterLock;
   return merged;
 }
 
@@ -4117,6 +4399,116 @@ function saveToStorage() {
 function createCommandId() {
   return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
 }
+
+// ---------- 主控锁 UI（v7.3.0） ----------
+var masterLockState = { mode: "strict", holder: null, selfHeld: false, inited: false };
+function masterLockInit() {
+  if (masterLockState.inited) return;
+  masterLockState.inited = true;
+  var bar = document.createElement("div");
+  bar.id = "master-lock-bar";
+  bar.style.cssText = "display:none;align-items:center;gap:6px;background:rgba(16,20,26,0.92);border:1px solid rgba(255,255,255,0.14);border-radius:10px;padding:5px 9px;font-size:12px;box-shadow:0 2px 10px rgba(0,0,0,0.4)";
+  bar.innerHTML = '<span id="master-lock-icon">🔒</span>'
+    + '<span id="master-lock-text" style="color:#cfd4dc;white-space:nowrap">主控锁加载中…</span>'
+    + '<button id="master-lock-btn" onclick="window.masterLockAction()" style="margin-left:2px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.25);color:#fff;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer">获取主控锁</button>'
+    + '<button id="master-lock-mode" onclick="window.masterLockToggleMode()" title="切换 strict/loose 锁模式" style="background:transparent;border:1px dashed rgba(255,255,255,0.3);color:#8e98a3;border-radius:6px;padding:2px 6px;font-size:10px;cursor:pointer">strict</button>';
+  // v7.6.0-P1: 主控锁并入顶部状态栏居中（ctrl-mode 下并入专注界面横幅），避免悬浮遮挡
+  var lockHost = document.querySelector('.ctrl-mode-banner') || document.querySelector('.header-center') || document.body;
+  lockHost.appendChild(bar);
+  masterLockRender();
+  // P2-2: runbook banner 随主控锁同排初始化
+  ensureRbBannerKeyframes();
+  runbookBannerInit();
+  if (window.sendMsg) sendMsg({ type: "master_lock_status" });
+}
+function masterLockRender() {
+  var bar = document.getElementById("master-lock-bar");
+  if (!bar) return;
+  if (typeof ROLE === "undefined" || ROLE !== "control") { bar.style.display = "none"; return; }
+  bar.style.display = "flex";
+  var text = document.getElementById("master-lock-text");
+  var btn = document.getElementById("master-lock-btn");
+  var modeBtn = document.getElementById("master-lock-mode");
+  var h = masterLockState.holder;
+  if (h && masterLockState.selfHeld) { text.textContent = "🔒 " + h.label + "（我持锁）"; btn.textContent = "释放主控锁"; }
+  else if (h) { text.textContent = "🔒 " + h.label + " 持锁"; btn.textContent = "接管主控锁"; }
+  else { text.textContent = "🔓 主控锁空闲"; btn.textContent = "获取主控锁"; }
+  modeBtn.textContent = masterLockState.mode === "loose" ? "loose" : "strict";
+  modeBtn.style.color = masterLockState.mode === "loose" ? "#ffd60a" : "#8e98a3";
+}
+window.masterLockAction = function() {
+  if (!window.sendMsg) return;
+  if (masterLockState.holder && !masterLockState.selfHeld) sendMsg({ type: "master_lock_acquire", force: true });
+  else if (masterLockState.holder && masterLockState.selfHeld) sendMsg({ type: "master_lock_release" });
+  else sendMsg({ type: "master_lock_acquire" });
+};
+window.masterLockToggleMode = function() {
+  if (!window.sendMsg) return;
+  sendMsg({ type: "master_lock_setmode", mode: masterLockState.mode === "loose" ? "strict" : "loose" });
+};
+// ---------- P2-2: runbook banner ----------
+var runbookBannerState = { active: false, nextAction: null, autoAdvanceSec: 0, chainCount: 0, breaker: false };
+function runbookBannerInit() {
+  if (document.getElementById("runbook-banner")) return;
+  var bar = document.createElement("div");
+  bar.id = "runbook-banner";
+  bar.style.cssText = "display:none;align-items:center;gap:6px;background:rgba(16,20,26,0.92);border:1px solid rgba(10,132,255,0.35);border-radius:10px;padding:5px 9px;font-size:12px;box-shadow:0 2px 10px rgba(0,0,0,0.4)";
+  bar.innerHTML = '<span id="runbook-banner-icon">📋</span><span id="runbook-banner-text" style="color:#cfd4dc;white-space:nowrap">runbook 空闲</span>';
+  // v7.6.0-P1: runbook 横幅并入顶部状态栏居中（与主控锁同排），避免悬浮遮挡
+  var rbHost = document.querySelector('.ctrl-mode-banner') || document.querySelector('.header-center') || document.body;
+  rbHost.appendChild(bar);
+  runbookBannerRender();
+}
+function runbookBannerRender() {
+  var bar = document.getElementById("runbook-banner");
+  if (!bar) return;
+  var show = (typeof ROLE !== "undefined" && (ROLE === "control" || ROLE === "director")) && !document.body.classList.contains('ctrl-mode');
+  if (!show) { bar.style.display = "none"; return; }
+  bar.style.display = "flex";
+  var text = document.getElementById("runbook-banner-text");
+  if (!text) return;
+  var curProg = localState && localState.programs ? localState.programs[localState.currentProgramIndex || 0] : null;
+  var rb = curProg && curProg.runbook ? curProg.runbook : null;
+  var n = (rb && rb.onEnter) ? rb.onEnter.length : 0;
+  var aaSec = (rb && rb.autoAdvance && rb.autoAdvanceSec) ? rb.autoAdvanceSec : 0;
+  var parts = [];
+  if (runbookBannerState.active) {
+    parts.push("⚡ 执行中" + (runbookBannerState.nextAction ? " · 下步:" + (RUNBOOK_ACTIONS_LABEL[runbookBannerState.nextAction] || runbookBannerState.nextAction) : ""));
+    bar.style.borderColor = "rgba(255,159,10,0.6)";
+    bar.style.animation = "rbBannerPulse 1s ease-in-out infinite";
+  } else {
+    parts.push("📋 runbook " + n + " 动作");
+    bar.style.borderColor = "rgba(10,132,255,0.35)";
+    bar.style.animation = "none";
+  }
+  if (aaSec) parts.push("自动推进 " + aaSec + "s");
+  if (runbookBannerState.breaker) parts.push("⛔ 熔断暂停");
+  else if (runbookBannerState.chainCount > 0) parts.push("链×" + runbookBannerState.chainCount);
+  text.textContent = parts.join(" · ");
+}
+function ensureRbBannerKeyframes() {
+  if (document.getElementById("rb-banner-keyframes")) return;
+  var st = document.createElement("style");
+  st.id = "rb-banner-keyframes";
+  st.textContent = "@keyframes rbBannerPulse { 0%,100% { box-shadow:0 2px 10px rgba(0,0,0,0.4); } 50% { box-shadow:0 0 14px rgba(255,159,10,0.55); } }";
+  document.head.appendChild(st);
+}
+function runbookBannerUpdate(data) {
+  if (data) {
+    runbookBannerState.active = !!data.active;
+    runbookBannerState.nextAction = data.nextAction || null;
+    runbookBannerState.autoAdvanceSec = data.autoAdvanceSec || 0;
+    runbookBannerState.chainCount = data.chainCount || 0;
+    runbookBannerState.breaker = !!data.breaker;
+    if (data.alert && typeof showToast === "function") showToast(data.alert);
+  }
+  runbookBannerRender();
+}
+if (typeof ROLE !== "undefined" && ROLE === "control") {
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", masterLockInit);
+  else masterLockInit();
+}
+
 function sendMsg(obj) {
   if (obj && ['set_current','advance','prev','next'].indexOf(obj.type) !== -1) {
     if (!confirmRehearsalExit('切换节目')) return false;
@@ -5283,6 +5675,7 @@ function applyRoleVisibility() {
     document.getElementById('performance-view').classList.add('hidden');
     if (screenView) screenView.classList.remove('hidden');
     renderScreenView();
+    renderOverlay(localState.outputs && localState.outputs.overlay);
     return;
   }
   if (screenView) screenView.classList.add('hidden');
@@ -5291,6 +5684,32 @@ function applyRoleVisibility() {
 
 // ---------- 提示屏渲染 ----------
 var screenHasRendered = false;
+
+// ===== P2-1 统一输出面：统一渲染入口 + 叠加层渲染 =====
+function renderOverlay(overlay) {
+  if (ROLE !== 'screen') return;
+  var ov = overlay || (localState.outputs && localState.outputs.overlay) || null;
+  if (!ov) return;
+  var subOverlay = document.getElementById('screen-subtitle-overlay');
+  var subText = document.getElementById('screen-subtitle-text');
+  if (subOverlay && subText) {
+    var os = ov.subtitle || { text: '', visible: false };
+    if (os.visible && os.text) {
+      subText.textContent = os.text;
+      subOverlay.style.display = '';
+    } else {
+      subOverlay.style.display = 'none';
+    }
+  }
+}
+function renderOutputs() {
+  var out = localState.outputs;
+  if (!out) return;
+  if (ROLE === 'screen') {
+    if (SUBTITLE_MODE && typeof renderSubtitleExclusiveView === 'function') renderSubtitleExclusiveView();
+    else { renderScreenView(); renderOverlay(out.overlay); }
+  }
+}
 function renderScreenView() {
   var screenRoot = document.getElementById('screen-view');
   var displayMode = (localState.screenSettings && localState.screenSettings.displayMode) || 'live';
@@ -6362,7 +6781,12 @@ window.setDisplayMode = function(mode) {
   showToast('提示屏已切换为' + ({ live:'直播', standby:'待机', blackout:'黑场', freeze:'冻结', test:'测试图' }[mode] || mode));
 };
 
+window.markScreenSettingsDirty = function() {
+  var sd = document.getElementById('screen-settings-dirty');
+  if (sd) sd.style.display = '';
+};
 window.updateScreenFontPreview = function() {
+  window.markScreenSettingsDirty();
   var fs = document.getElementById('screen-font-size');
   var fsv = document.getElementById('screen-font-size-val');
   if (fs && fsv) fsv.textContent = fs.value + 'px';
@@ -6393,6 +6817,7 @@ window.saveScreenSetting = function() {
   try { localStorage.setItem('screenSettings', JSON.stringify(screenSettings)); } catch(e) {}
   sendMsg({ type: 'update_state', data: { screenSettings: Object.assign({}, screenSettings) } });
   showToast('提示屏设置已保存');
+  var sdEl = document.getElementById('screen-settings-dirty'); if (sdEl) sdEl.style.display = 'none';
   if (ROLE === 'screen') renderScreenView();
   closeModal('modal-screen-setting');
 };
@@ -6660,6 +7085,10 @@ window.openEditProgram = function (idx) {
   // v1.1.4: 本节目任务区按 editTasks 权限显示（无权限角色整个隐藏）
   var cuesGroup = document.getElementById('edit-program-cues-group');
   if (cuesGroup) cuesGroup.style.display = (ROLE === 'control' || can('editTasks')) ? '' : 'none';
+  // P2-2: runbook 配置区仅 control 可编辑（非 control 整个隐藏）
+  var rbGroup = document.getElementById('edit-runbook-group');
+  if (rbGroup) rbGroup.style.display = (ROLE === 'control') ? '' : 'none';
+  if (ROLE === 'control') fillEditRunbook(p);
   document.getElementById('edit-panel').classList.remove('hidden');
   renderProgramChannelSelector();
   renderEditProgramCues();  // v1.1.4: 渲染本节目任务行
@@ -6762,7 +7191,9 @@ window.saveProgram = function () {
     if (!name) return alert("节目名称不能为空");
     var arr = localState.programs.slice();
     var oldProg = arr[editingIndex];
-    arr[editingIndex] = Object.assign({}, oldProg, { name:name, duration:duration, rehearsalDurationMs:rehearsalDurationMs, notes:notes, musicCue:musicCue, status:oldProg.status||'pending', useChannels:oldProg.useChannels||[] });
+    // P2-2: 收集 runbook 配置（仅 control；服务端 mergeState 再规范化兜底）
+    var runbookConfig = collectEditRunbook();
+    arr[editingIndex] = Object.assign({}, oldProg, { name:name, duration:duration, rehearsalDurationMs:rehearsalDurationMs, notes:notes, musicCue:musicCue, runbook:runbookConfig, status:oldProg.status||'pending', useChannels:oldProg.useChannels||[] });
     localState.programs = arr;
     saveToStorage();
     sendMsg({ type: "update_state", data: { programs: arr }, role: 'control' });

@@ -55,5 +55,12 @@
       "editChannels": true,
       "addDel": false
     }
+  },
+  "rolePorts": {
+    "director": 18392,
+    "assistant": 18393,
+    "backstage": 18394,
+    "console": 18395,
+    "screenCtrl": 18399
   }
 }

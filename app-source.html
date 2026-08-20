@@ -499,6 +499,36 @@ body[data-role] .role-badge { background:color-mix(in srgb, var(--role-accent) 1
   color:var(--text-2);
   margin-top:8px;
 }
+/* v7.1.1: 节目卡本节目任务（与正式版一致） */
+.stage-tasks {
+  margin-top:10px;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+.stage-tasks-title {
+  font-size:12px;
+  font-weight:700;
+  color:var(--text-2);
+  margin-bottom:2px;
+}
+.stage-task-item {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:13px;
+  line-height:1.5;
+}
+.stage-task-role {
+  flex:none;
+  min-width:56px;
+  font-weight:600;
+  color:#4aa8ff;
+}
+.stage-task-label {
+  flex:1;
+  color:var(--text-1);
+}
 .timer-section {
   text-align:center;
   margin-top:16px;
@@ -1391,7 +1421,8 @@ body.ctrl-mode #modal-screen-setting .modal-box { padding-top:calc(40px + env(sa
   }
   .main-layout.mode-performance .panel-list,
   .main-layout.mode-perf-list .panel-list { max-height:none; height:100%; overflow-y:auto; }
-  body.list-open .panel-list { transform:none; }
+  body.list-open .main-layout.mode-performance .panel-list,
+  body.list-open .main-layout.mode-perf-list .panel-list { transform:none !important; }
   /* 抽屉遮罩 */
   .list-scrim { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:399; display:none; }
   body.list-open .list-scrim { display:block; }
@@ -2214,6 +2245,7 @@ body.mode-setup .completed-check-icon { cursor:pointer; pointer-events:auto; }
             <div id="current-channels" class="stage-mics"></div>
             <div id="current-music" class="music-cue-display"></div>
             <div id="current-notes" class="stage-notes"></div>
+            <div id="current-tasks" class="stage-tasks"></div>
             <div id="current-total" class="stage-total"></div>
             <div id="current-duration" class="card-duration"></div>
           </div>
@@ -5366,7 +5398,7 @@ window.switchRole = function(newRole) {
 };
 window.openRoleSwitcher = function() {
   var host = cachedServerIP || location.hostname || 'localhost';
-  var port = cachedClientPort || 3002;
+  var port = cachedEntryPort || 18388;
   window.open('http://' + host + ':' + port + '/', '_blank');
 };
 
@@ -5762,6 +5794,16 @@ window.controlProgramTimer = function(action) {
 
 setInterval(renderTimer, 200);
 
+// v7.1.1: 角色显示名（先查 rolePlans 自定义中文名，回退内置标签，最后回退原始 id）
+var LITE_ROLE_LABELS = { control:'控制端', director:'导演端', assistant:'助理端', backstage:'幕后端', console:'控台端', screen:'提示屏' };
+function liteRoleDisplayName(roleId) {
+  if (!roleId) return roleId;
+  var rp = (typeof localState !== 'undefined' && localState && localState.rolePlans) || { roles: [] };
+  var roles = Array.isArray(rp.roles) ? rp.roles : [];
+  for (var i = 0; i < roles.length; i++) { if (roles[i].id === roleId || roles[i].name === roleId) return roles[i].name || roleId; }
+  return LITE_ROLE_LABELS[roleId] || roleId;
+}
+
 // ---------- 演出视图 ----------
 function renderStageView() {
   var idx = localState.currentProgramIndex;
@@ -5777,6 +5819,27 @@ function renderStageView() {
     curMusic.style.display = (current && current.musicCue) ? '' : 'none';
   }
   document.getElementById('current-notes').innerText = current ? (current.notes || "") : "";
+  // v7.1.1: 节目卡显示本节目任务（与正式版一致；数据源 timeline.cues，按时间排序，只显示有内容的任务）
+  var curTasks = document.getElementById('current-tasks');
+  if (curTasks) {
+    curTasks.innerHTML = '';
+    if (current) {
+      var allCues = (localState.timeline && Array.isArray(localState.timeline.cues)) ? localState.timeline.cues : [];
+      var myCues = allCues.filter(function(c) { return c && c.programIndex === idx && (c.label || '').trim(); })
+        .sort(function(a, b) { return (a.offsetMs || 0) - (b.offsetMs || 0); });
+      if (myCues.length) {
+        var tasksHtml = '<div class="stage-tasks-title">🎯 本节目任务</div>';
+        myCues.forEach(function(c) {
+          var roleV = (function() {
+            var rl = Array.isArray(c.role) ? c.role : (c.role ? [c.role] : []);
+            return rl.map(function(r) { return liteRoleDisplayName(r); }).join('/') || '通用';
+          })();
+          tasksHtml += '<div class="stage-task-item"><span class="stage-task-role">' + escapeHtml(roleV) + '</span><span class="stage-task-label">' + escapeHtml(c.label) + '</span></div>';
+        });
+        curTasks.innerHTML = tasksHtml;
+      }
+    }
+  }
   document.getElementById('next-name').innerText = next ? next.name : "无";
   var nextMusic = document.getElementById('next-music');
   if (nextMusic) {
@@ -6364,6 +6427,7 @@ function collectRolePermissions() {
 var cachedServerIP = '';
 var cachedServerPort = 3000;
 var cachedClientPort = 3002;
+var cachedEntryPort = 18388;
 function fetchServerIP() {
   fetch('/api/server-info', { headers: authHeaders() })
     .then(function(r) { return r.json(); })
@@ -6372,6 +6436,7 @@ function fetchServerIP() {
         cachedServerIP = data.ip;
         cachedServerPort = data.port || 3000;
         cachedClientPort = data.clientPort || 3002;
+        cachedEntryPort = data.entryPort || 18388;
         if (data.links) cachedAccessLinks = data.links;
         if (data.permissions) applyServerPermissions(data.permissions);
         if (data.rolePermissions) renderRolePermissions(data.rolePermissions);

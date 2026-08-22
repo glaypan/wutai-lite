@@ -1,4 +1,11 @@
 # wutai 舞台流程表 wutai-lite 变更记录
+## 版本：1.5.1（2026-08-23）字幕/tally 死代码精简
+- 服务端删 runbook subtitle_goto/show/hide + tally 死分支（原引用不存在的 createTally，消除 ReferenceError 隐患）
+- 删 state.subtitle / buildOutputs 字幕块 / RUNBOOK_ROLES 常量 / screenClientStats 字幕计数
+- 前端删 tally 动作 UI（label/参数渲染/收集）+ RUNBOOK_ROLES_FRONT + BUILTIN_ROLE_LABELS 的 subtitle 项
+- 保留 P2-1 outputsOverlay.subtitle 叠加层（提示屏共用）+ 权限表兼容字段
+- 验证：语法全绿 + WS 端到端 8/8（tally 丢弃/screen_mode+clear 正常执行/无 ReferenceError）
+
 ## 版本：1.5.0（2026-08-21）手机端布局修复
 - 手机端 header-center 改三行布局（第1行模式按钮+连接状态可截断、第2行主控锁独占、第3行 runbook 横幅独占），修复主控锁/runbook 超出页面（iPhone 390 实测 scrollWidth≤390，桌面端零影响）
 ## 版本：1.5.0（2026-08-20）控制端修复

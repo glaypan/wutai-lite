@@ -434,7 +434,6 @@ function ensureChannel(ch) { return { id: ch.id || ("ch_" + Date.now() + "_" + M
 // activateProgram 唯一切节目入口 / set_current 同 index 不重启 / 熔断链计数规则 / clear 边界确定
 var EMPTY_RUNBOOK = { onEnter: [], autoAdvance: false, autoAdvanceSec: 0 };
 var RUNBOOK_ACTIONS = ["screen_mode", "clear"]; // lite 精简版：无字幕/无Tally基础设施，仅编排存在动作
-var RUNBOOK_ROLES = ["assistant", "backstage", "console", "director", "all"];
 var RUNBOOK_SCREEN_MODES = ["live", "standby", "blackout", "freeze", "test"];
 var MAX_RUNBOOK_ACTIONS = 50;
 var MAX_RUNBOOK_DELAY = 300;
@@ -458,13 +457,7 @@ function normalizeRunbook(rb) {
     var action = String(a.action || "");
     if (RUNBOOK_ACTIONS.indexOf(action) < 0) return;
     var item = { action: action, delaySec: isFinite(parseInt(a.delaySec, 10)) ? Math.max(0, Math.min(MAX_RUNBOOK_DELAY, parseInt(a.delaySec, 10))) : 0 };
-    if (action === "subtitle_goto") {
-      item.index = isFinite(parseInt(a.index, 10)) ? parseInt(a.index, 10) : 0;
-    } else if (action === "tally") {
-      var roles = Array.isArray(a.roles) ? a.roles.filter(function(r) { return RUNBOOK_ROLES.indexOf(r) >= 0; }) : [];
-      if (!roles.length) roles = ["assistant"];
-      item.roles = roles;
-    } else if (action === "screen_mode") {
+    if (action === "screen_mode") {
       item.mode = RUNBOOK_SCREEN_MODES.indexOf(a.mode) >= 0 ? a.mode : "live";
     }
     actions.push(item);
@@ -537,26 +530,10 @@ function executeRunbookAction(item, runId) {
   if (!runbookRun || runbookRun.runId !== runId) return;
   if (runbookRun.programIndex !== state.currentProgramIndex) { runbookRun = null; return; }
   try {
-    if (item.action === "subtitle_goto") {
-      var lines = state.subtitle.lines || [];
-      state.subtitle.currentIndex = Math.max(-1, Math.min(item.index === undefined ? 0 : item.index, lines.length - 1));
-    } else if (item.action === "subtitle_show") {
-      state.subtitle.visible = true;
-    } else if (item.action === "subtitle_hide") {
-      state.subtitle.visible = false;
-    } else if (item.action === "tally") {
-      var prog = state.programs[state.currentProgramIndex] || {};
-      var t = createTally({ programId: prog.id, programIndex: state.currentProgramIndex, roles: item.roles, source: "runbook", senderRole: "system" });
-      if (t) { broadcastTally(t); addTallyHistory(t); }
-    } else if (item.action === "screen_mode") {
+    if (item.action === "screen_mode") {
       state.screenSettings.displayMode = item.mode;
     } else if (item.action === "clear") {
-      // clear 边界确定：只清字幕 + 停自动走句 + 同步清 P2-1 outputsOverlay 字幕叠加层（不清节目数据/其他状态）
-      if (state.subtitle.lines && state.subtitle.lines.length > 0) {
-        state.subtitle.lastBackup = { lines: state.subtitle.lines.slice(), currentIndex: state.subtitle.currentIndex, visible: state.subtitle.visible, fontSize: state.subtitle.fontSize, backedUpAt: Date.now() };
-      }
-      state.subtitle.lines = []; state.subtitle.currentIndex = -1; state.subtitle.visible = false;
-      if (state.subtitle.autoPlay) { state.subtitle.autoPlay.enabled = false; if (autoPlayTimer) { clearTimeout(autoPlayTimer); autoPlayTimer = null; } }
+      // clear 边界：lite 无字幕屏/无Tally，仅同步清 P2-1 outputsOverlay 字幕叠加层
       outputsOverlay.subtitle = { text: '', visible: false };
     }
     commitState();
@@ -913,7 +890,7 @@ function rejectUpgrade(socket) {
   socket.destroy();
 }
 // v7.2.1-P1: 屏幕在线计数（lite 无字幕端：screen=提示屏 / screenCtrl=提示屏控制端）
-var screenClientStats = { subtitleScreen: 0, screen: 0, subtitleCtrl: 0, screenCtrl: 0 };
+var screenClientStats = { screen: 0, screenCtrl: 0 };
 function attachUpgrade(httpServer, socketServer, serverType) {
   httpServer.on("upgrade", function(req, socket, head) {
     if (!isAllowedOrigin(req)) return rejectUpgrade(socket);
@@ -1051,9 +1028,6 @@ function buildOutputs(s) {
   var doneCount = 0;
   (s.programs || []).forEach(function(p) { if (p && p.status === 'completed') doneCount++; });
   var sc = s.screenSettings || {};
-  var sub = s.subtitle || { lines: [], currentIndex: -1, visible: false, fontSize: 96 };
-  var subLines = Array.isArray(sub.lines) ? sub.lines : [];
-  var subText = (sub.visible === true && sub.currentIndex >= 0 && sub.currentIndex < subLines.length) ? String(subLines[sub.currentIndex] || '') : '';
   var ov = outputsOverlay || { subtitle: { text: '', visible: false }, media: { type: '', url: '', active: false } };
   return {
     screen: {
@@ -1069,11 +1043,6 @@ function buildOutputs(s) {
       notes: prog ? String(prog.notes || '') : '',
       nextName: next ? String(next.name || '') : '',
       progress: { done: doneCount, total: (s.programs || []).length }
-    },
-    subtitle: {
-      lines: subLines.slice(), currentIndex: sub.currentIndex != null ? sub.currentIndex : -1,
-      visible: sub.visible === true, fontSize: typeof sub.fontSize === 'number' ? sub.fontSize : 96,
-      text: subText
     },
     overlay: ov
   };
@@ -2122,11 +2091,9 @@ function serveRequest(req, res, serverType) {
       entryPortOverride: ENTRY_PORT_ENV_OVERRIDE,
       screenPortOverride: SCREEN_PORT_ENV_OVERRIDE,
       downloadBaseUrl: makeBaseUrl(req),
-      // v7.2.1-P1: 屏幕在线计数（只增不改，向后兼容；lite 无字幕端故 subtitle 计数恒 0）
+      // v7.2.1-P1: 屏幕在线计数（lite 无字幕端：screen=提示屏 / screenCtrl=提示屏控制端）
       screenClients: {
-        subtitleScreen: 0,
         screen: screenClientStats.screen,
-        subtitleCtrl: 0,
         screenCtrl: screenClientStats.screenCtrl
       }
     };

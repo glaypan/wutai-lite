@@ -3499,8 +3499,7 @@ function ensureChannel(ch) {
 // 状态合并（兼容旧数据，确保新字段存在）
 // P2-2: runbook 前端规范化（与后端 normalizeRunbook 同构；白名单过滤 + clamp；防重载丢字段）
 var RUNBOOK_ACTIONS_FRONT = ["screen_mode", "clear"]; // lite 精简版：无字幕/无Tally
-var RUNBOOK_ACTIONS_LABEL = { subtitle_goto: "字幕跳转", subtitle_show: "显示字幕", subtitle_hide: "隐藏字幕", tally: "Tally 提醒", screen_mode: "提示屏模式", clear: "清空字幕" };
-var RUNBOOK_ROLES_FRONT = ["assistant", "backstage", "console", "director", "all"];
+var RUNBOOK_ACTIONS_LABEL = { screen_mode: "提示屏模式", clear: "清空" };
 var RUNBOOK_SCREEN_MODES_FRONT = ["live", "standby", "blackout", "freeze", "test"];
 function normalizeRunbookFront(rb) {
   var src = rb && typeof rb === 'object' ? rb : {};
@@ -3511,13 +3510,7 @@ function normalizeRunbookFront(rb) {
     var action = String(a.action || '');
     if (RUNBOOK_ACTIONS_FRONT.indexOf(action) < 0) return;
     var item = { action: action, delaySec: isFinite(parseInt(a.delaySec, 10)) ? Math.max(0, Math.min(300, parseInt(a.delaySec, 10))) : 0 };
-    if (action === 'subtitle_goto') {
-      item.index = isFinite(parseInt(a.index, 10)) ? parseInt(a.index, 10) : 0;
-    } else if (action === 'tally') {
-      var roles = Array.isArray(a.roles) ? a.roles.filter(function(r) { return RUNBOOK_ROLES_FRONT.indexOf(r) >= 0; }) : [];
-      if (!roles.length) roles = ['assistant'];
-      item.roles = roles;
-    } else if (action === 'screen_mode') {
+    if (action === 'screen_mode') {
       item.mode = RUNBOOK_SCREEN_MODES_FRONT.indexOf(a.mode) >= 0 ? a.mode : 'live';
     }
     actions.push(item);
@@ -3573,29 +3566,7 @@ function renderRunbookRowParam(row) {
   var wrap = row.querySelector('span');
   wrap.innerHTML = '';
   var action = sel.value;
-  if (action === 'subtitle_goto') {
-    var idxInput = document.createElement('input');
-    idxInput.type = 'number'; idxInput.min = '-1'; idxInput.step = '1';
-    idxInput.setAttribute('data-rb-param-index', '1');
-    idxInput.value = (row.__rbItem && row.__rbItem.index !== undefined) ? row.__rbItem.index : 0;
-    idxInput.style.cssText = 'width:62px;border-radius:6px;border:1px solid var(--border);background:var(--bg-1);color:var(--text-1);padding:3px 5px;font-size:13px;';
-    var lab = document.createElement('span');
-    lab.style.cssText = 'color:var(--apple-text-tertiary,#777);font-size:12px;';
-    lab.textContent = '行号';
-    wrap.appendChild(idxInput); wrap.appendChild(lab);
-  } else if (action === 'tally') {
-    var roleSel = document.createElement('select');
-    roleSel.setAttribute('data-rb-param-roles', '1');
-    roleSel.style.cssText = 'min-width:96px;border-radius:6px;border:1px solid var(--border);background:var(--bg-1);color:var(--text-1);padding:3px 5px;font-size:13px;';
-    RUNBOOK_ROLES_FRONT.forEach(function(r) {
-      var opt = document.createElement('option');
-      opt.value = r;
-      opt.textContent = ({ assistant: '助理', backstage: '幕后', console: '控台', director: '导演', all: '全部' })[r] || r;
-      if (row.__rbItem && row.__rbItem.roles && row.__rbItem.roles.indexOf(r) >= 0) opt.selected = true;
-      roleSel.appendChild(opt);
-    });
-    wrap.appendChild(roleSel);
-  } else if (action === 'screen_mode') {
+  if (action === 'screen_mode') {
     var modeSel = document.createElement('select');
     modeSel.setAttribute('data-rb-param-mode', '1');
     modeSel.style.cssText = 'min-width:96px;border-radius:6px;border:1px solid var(--border);background:var(--bg-1);color:var(--text-1);padding:3px 5px;font-size:13px;';
@@ -3642,13 +3613,7 @@ window.collectEditRunbook = function() {
       if (!sel) continue;
       var action = sel.value;
       var item = { action: action, delaySec: Math.max(0, Math.min(300, parseInt((row.querySelector('[data-rb-delay]') || {}).value, 10) || 0)) };
-      if (action === 'subtitle_goto') {
-        item.index = parseInt((row.querySelector('[data-rb-param-index]') || {}).value, 10);
-        if (!isFinite(item.index)) item.index = 0;
-      } else if (action === 'tally') {
-        var rv = (row.querySelector('[data-rb-param-roles]') || {}).value || 'assistant';
-        item.roles = [rv];
-      } else if (action === 'screen_mode') {
+      if (action === 'screen_mode') {
         item.mode = (row.querySelector('[data-rb-param-mode]') || {}).value || 'live';
       }
       onEnter.push(item);
@@ -4222,7 +4187,7 @@ function scriptCueBelongsTo(cue, prog) {
   if (p.id && prog.id) return p.id === prog.id;
   return p === prog;
 }
-var BUILTIN_ROLE_LABELS = { control: '控制端', director: '导演端', assistant: '助理端', backstage: '幕后端', console: '控台端', screen: '提示屏', subtitle: '字幕', all: '全部', system: '系统', dj: 'DJ', light: '灯光', audio: '音控', camera: '摄影' };
+var BUILTIN_ROLE_LABELS = { control: '控制端', director: '导演端', assistant: '助理端', backstage: '幕后端', console: '控台端', screen: '提示屏', all: '全部', system: '系统', dj: 'DJ', light: '灯光', audio: '音控', camera: '摄影' };
 function roleDisplayName(roleId) {
   if (roleId == null) return '-';
   // 内置岗位（assistant/director 等）先查硬编码中文映射，避免直接显示英文 id

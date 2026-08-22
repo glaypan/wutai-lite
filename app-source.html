@@ -1869,6 +1869,20 @@ body.mode-setup .completed-check-icon { cursor:pointer; pointer-events:auto; }
   body { padding-bottom:0; }
 }
 
+/* ─── v7.6.0 手机端 header-center 三行布局(修复主控锁/runbook 溢出, ≤768px) ─── */
+@media (max-width:768px) {
+  .header { display:block; overflow-x:hidden; }
+  .header-left, .header-center { width:100%; min-width:0; }
+  .header-center { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-start; gap:6px; overflow:hidden; }
+  .header-center > * { min-width:0; max-width:100%; flex-shrink:1; }
+  .mode-toggle-btn { flex:0 0 auto; max-width:92px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .conn-status { flex:1 1 0; min-width:0; max-width:calc(100% - 100px); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #master-lock-bar { order:3; flex:1 0 100%; width:100%; box-sizing:border-box; min-width:0; overflow:hidden; }
+  #master-lock-bar * { min-width:0; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #runbook-banner { order:4; flex:1 0 100%; width:100%; box-sizing:border-box; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  body { overflow-x:hidden; }
+}
+
 </style>
 </head>
 <body>
@@ -4030,7 +4044,7 @@ function renderRoleOverview() {
   summary.innerHTML = '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--apple-text-tertiary,#777);">'
     + '<span>⏱ 当前进度 ' + fmtRoClock(nowMs) + '</span>'
     + '<span>🎬 当前节目 ' + escapeHtml(curProg ? curProg.name : "—") + '</span>'
-    + '<span style="color:#0a84ff;">⬇ 下一个上场 ' + (nextRole ? '<span style="color:' + nextRole.color + ';">' + escapeHtml(nextRole.role) + '</span>（' + escapeHtml(nextRole.label) + '）' : "—") + '</span></div>';
+    + '<span style="color:#0a84ff;">⬇ 下一个上场 ' + (nextRole ? '<span style="color:' + nextRole.color + ';">' + escapeHtml(roleDisplayName(nextRole.role)) + '</span>（' + escapeHtml(nextRole.label) + '）' : "—") + '</span></div>';
   var html = "";
   for (var r = 0; r < roles.length; r++) {
     var role = roles[r];
@@ -4208,6 +4222,15 @@ function scriptCueBelongsTo(cue, prog) {
   if (p.id && prog.id) return p.id === prog.id;
   return p === prog;
 }
+var BUILTIN_ROLE_LABELS = { control: '控制端', director: '导演端', assistant: '助理端', backstage: '幕后端', console: '控台端', screen: '提示屏', subtitle: '字幕', all: '全部', system: '系统', dj: 'DJ', light: '灯光', audio: '音控', camera: '摄影' };
+function roleDisplayName(roleId) {
+  if (roleId == null) return '-';
+  // 内置岗位（assistant/director 等）先查硬编码中文映射，避免直接显示英文 id
+  if (BUILTIN_ROLE_LABELS[roleId]) return BUILTIN_ROLE_LABELS[roleId];
+  var rp = (localState && localState.rolePlans) || { roles: [] };
+  for (var i = 0; i < rp.roles.length; i++) { if (rp.roles[i].id === roleId || rp.roles[i].name === roleId) return rp.roles[i].name || roleId; }
+  return roleId;
+}
 function scriptRoleColor(roleId) {
   var rp = (localState && localState.rolePlans) || { roles: [] };
   for (var i = 0; i < rp.roles.length; i++) { if (rp.roles[i].id === roleId || rp.roles[i].name === roleId) return rp.roles[i].color || "#888"; }
@@ -4284,7 +4307,7 @@ function renderScriptView() {
       } else {
         for (var pj = 0; pj < progCues.length; pj++) {
           var pc2 = progCues[pj];
-          var rolesHtml2 = (pc2.role || []).map(function(r) { return '<span style="background:' + scriptRoleColor(r) + '22;color:' + scriptRoleColor(r) + ';border:1px solid ' + scriptRoleColor(r) + '66;border-radius:6px;padding:1px 8px;font-size:11px;">' + r + '</span>'; }).join(" ") || '<span style="color:#8e8e93;font-size:11px;">未分配</span>';
+          var rolesHtml2 = (pc2.role || []).map(function(r) { return '<span style="background:' + scriptRoleColor(r) + '22;color:' + scriptRoleColor(r) + ';border:1px solid ' + scriptRoleColor(r) + '66;border-radius:6px;padding:1px 8px;font-size:11px;">' + roleDisplayName(r) + '</span>'; }).join(" ") || '<span style="color:#8e8e93;font-size:11px;">未分配</span>';
           allRows += '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px dashed rgba(255,255,255,0.06);flex-wrap:wrap;">'
             + '<span style="font-family:monospace;font-size:12px;color:#0a84ff;min-width:66px;">' + formatHMS(pc2.offsetMs) + '</span>'
             + '<span style="flex:1;font-size:14px;min-width:100px;">' + (pc2.label || "未命名任务") + '</span>'
@@ -4333,7 +4356,7 @@ function renderScriptView() {
     var remainSec = Math.max(0, Math.round((c.offsetMs - elapsedMs) / 1000));
     var statusMap = { pending: "待执行", ready: "就绪", done: "已完成", skipped: "已跳过" };
     var stColor = { pending: "#ff9f0a", ready: "#0a84ff", done: "#30d158", skipped: "#8e8e93" };
-    var rolesHtml = (c.role || []).map(function(r) { return '<span style="background:' + scriptRoleColor(r) + '22;color:' + scriptRoleColor(r) + ';border:1px solid ' + scriptRoleColor(r) + '66;border-radius:6px;padding:1px 8px;font-size:11px;">' + r + '</span>'; }).join(" ") || '<span style="color:#8e8e93;font-size:11px;">未分配</span>';
+    var rolesHtml = (c.role || []).map(function(r) { return '<span style="background:' + scriptRoleColor(r) + '22;color:' + scriptRoleColor(r) + ';border:1px solid ' + scriptRoleColor(r) + '66;border-radius:6px;padding:1px 8px;font-size:11px;">' + roleDisplayName(r) + '</span>'; }).join(" ") || '<span style="color:#8e8e93;font-size:11px;">未分配</span>';
     var badge = '<span style="background:' + (stColor[c.status] || "#8e8e93") + '22;color:' + (stColor[c.status] || "#8e8e93") + ';border:1px solid ' + (stColor[c.status] || "#8e8e93") + '66;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:600;">' + (statusMap[c.status] || c.status) + '</span>';
     var ackBtn = (c.type === "task" && ["pending", "ready"].indexOf(c.status) >= 0) ? '<button class="btn btn-sm btn-primary" onclick="ackScriptTask(\'' + c.id + '\')" style="min-height:36px;min-width:76px;">✓ 确认</button>' : (c.status === "done" ? '<span style="color:#30d158;font-size:18px;">✓</span>' : '');
     var timeTxt = c.offsetMs > 0 ? "+" + formatHMS(c.offsetMs) : "开始";
@@ -4827,7 +4850,7 @@ function showModeApprovalModal(data) {
   if (!modal) return;
   modal.dataset.requestId = data.requestId || '';
   var modeText = data.targetMode === 'performance' ? '演出模式' : '设置模式';
-  var roleLabel = data.fromRole === 'director' ? '导演端' : data.fromRole;
+  var roleLabel = roleDisplayName(data.fromRole);
   var infoEl = document.getElementById('mode-approval-info');
   if (infoEl) infoEl.textContent = roleLabel + ' 请求切换到【' + modeText + '】';
   var reasonEl = document.getElementById('mode-approval-reason');
@@ -8693,7 +8716,7 @@ window.requestOperationLog = function() { sendMsg({ type:'get_operation_log' });
 window.setShortcutLock = function(value) { shortcutLocked = !!value; try { localStorage.setItem('stage-manager-shortcut-lock', shortcutLocked ? '1' : '0'); } catch(e) {} showToast(shortcutLocked ? '演出快捷键已锁定' : '演出快捷键已解锁'); };
 function renderOperationLog(entries) {
   var wrap = document.getElementById('operation-log'); if (!wrap) return;
-  wrap.innerHTML = entries.length ? entries.map(function(e) { return '<div class="log-row"><span>' + escapeHtml(new Date(e.time).toLocaleString()) + '</span><span>' + escapeHtml(e.role || '-') + '</span><span>' + escapeHtml(e.action || '-') + '</span></div>'; }).join('') : '<div class="log-row"><span>暂无操作记录</span></div>';
+  wrap.innerHTML = entries.length ? entries.map(function(e) { return '<div class="log-row"><span>' + escapeHtml(new Date(e.time).toLocaleString()) + '</span><span>' + escapeHtml(roleDisplayName(e.role)) + '</span><span>' + escapeHtml(e.action || '-') + '</span></div>'; }).join('') : '<div class="log-row"><span>暂无操作记录</span></div>';
 }
 window.projectExport = function(projectId) {
   showToast('正在打包项目…');

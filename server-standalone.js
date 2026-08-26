@@ -92,6 +92,7 @@ function normalizeThemeConfig(raw) {
     logo: String(raw.logo || "").slice(0, 3000),
     primaryColor: /^#[0-9a-fA-F]{6}$/.test(String(raw.primaryColor || "")) ? String(raw.primaryColor) : "#0a84ff",
     screenBg: /^#[0-9a-fA-F]{6}$/.test(String(raw.screenBg || "")) ? String(raw.screenBg) : "#000000",
+    screenBgImage: String(raw.screenBgImage || "").slice(0, 1024 * 1024),  // v7.6.x: 提示屏背景图（URL 或 dataURL，上限 1MB 与 WS maxPayload 一致）
     fontSizeScale: Math.max(0.7, Math.min(1.5, parseFloat(raw.fontSizeScale) || 1.0))
   };
 }

@@ -1,4 +1,8 @@
 # wutai 舞台流程表 wutai-lite 变更记录
+## 版本：1.6.0（2026-08-27）提示屏背景图
+- 提示屏背景图（screenBgImage，URL/dataURL 上限 1MB）：theme_update 支持背景图设置，提示屏渲染背景图
+- 服务端 normalizeThemeConfig 支持 screenBgImage 字段（与正式版 7.7.0 同步）
+- 前端提示屏设置弹窗增加背景图设置区（选择图片/清除背景）
 ## 版本：1.5.1（2026-08-23）字幕/tally 死代码精简
 - 服务端删 runbook subtitle_goto/show/hide + tally 死分支（原引用不存在的 createTally，消除 ReferenceError 隐患）
 - 删 state.subtitle / buildOutputs 字幕块 / RUNBOOK_ROLES 常量 / screenClientStats 字幕计数

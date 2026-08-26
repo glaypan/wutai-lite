@@ -2,6 +2,7 @@
 **/.runtime/
 **/*.log
 **/*.tmp
+**/*.tmp-*
 **/exports/
 **/config.json
 **/config.json.bak

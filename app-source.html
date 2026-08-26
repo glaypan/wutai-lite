@@ -1236,7 +1236,10 @@ body[data-role] .role-badge { background:color-mix(in srgb, var(--role-accent) 1
 /* ========== 提示屏全屏视图 ========== */
 .screen-view {
   position:fixed; top:0; left:0; width:100vw; height:100vh;
-  background:var(--theme-bg, #000); color:#fff; z-index:9999;
+  background-color:var(--theme-bg, #000);
+  background-image:var(--screen-bg-image, none);
+  background-position:center center; background-repeat:no-repeat; background-size:cover;
+  color:#fff; z-index:9999;
   display:flex; flex-direction:column; align-items:center; justify-content:center;
   padding:40px; box-sizing:border-box; overflow:hidden;
 }
@@ -2470,6 +2473,20 @@ body.mode-setup .completed-check-icon { cursor:pointer; pointer-events:auto; }
 
           <!-- v7.2.0-P0: 未保存修改提示 -->
           <div id="screen-settings-dirty" style="display:none;background:rgba(255,204,0,0.12);border:1px solid rgba(255,204,0,0.4);border-radius:8px;padding:8px 12px;font-size:13px;color:#ffd60a;margin-bottom:16px">⚠️ 字号/显示设置有未保存修改，点「������ 保存设置」后生效</div>
+
+<!-- v7.6.x: 提示屏背景图（本地图片导入，保存设置后生效） -->
+          <div style="margin-bottom:16px">
+            <div style="font-size:14px;font-weight:600;margin-bottom:8px">提示屏背景图</div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input type="file" id="screen-bg-file" accept="image/*" style="display:none">
+              <button class="btn btn-sm btn-secondary" type="button" onclick="document.getElementById('screen-bg-file').click()">🖼 选择图片</button>
+              <button class="btn btn-sm btn-secondary" type="button" onclick="clearScreenBgDraft()">🗑 清除背景</button>
+              <span id="screen-bg-status" style="font-size:12px;color:var(--text-3)"></span>
+            </div>
+            <div id="screen-bg-preview" style="display:none;margin-top:8px">
+              <img style="max-width:100%;max-height:120px;border-radius:8px;border:1px solid var(--border)">
+            </div>
+          </div>
 
 <!-- 字号设置 -->
           <div style="margin-bottom:16px">
@@ -4976,6 +4993,8 @@ window.applyTheme = function(theme) {
   var root = document.documentElement;
   root.style.setProperty('--brand-primary', primary);
   root.style.setProperty('--screen-bg', screenBg);
+  var screenBgImage = String(theme.screenBgImage || '').trim();
+  root.style.setProperty('--screen-bg-image', screenBgImage ? ('url("' + String(screenBgImage).replace(/"/g, '%22').replace(/[\r\n]/g, '') + '")') : 'none');
   root.style.setProperty('--screen-font-scale', String(scale));
   // 提示屏元素应用
   var sv = document.getElementById('screen-view');
@@ -6664,6 +6683,40 @@ window.openScreenSetting = function() {
   document.getElementById('screen-show-progress').checked = screenSettings.showProgress;
   updateDisplayModeButtons();
   applyScreenSetting();
+  // v7.6.x: 回填提示屏背景图（草稿重置）
+  screenBgDraft = null;
+  var effBg = (localState.theme && localState.theme.screenBgImage) || '';
+  var stB = document.getElementById('screen-bg-status');
+  var pvB = document.getElementById('screen-bg-preview');
+  if (stB) stB.textContent = effBg ? '当前已设置背景图' : '未设置背景图（黑色）';
+  if (pvB) {
+    if (effBg) { pvB.style.display = 'block'; pvB.querySelector('img').src = effBg; }
+    else pvB.style.display = 'none';
+  }
+};
+
+// v7.6.x: 提示屏背景图草稿（null=未改, ''=清除, dataURL=新图）
+var screenBgDraft = null;
+window.screenBgPick = function(ev) {
+  var file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  if (file.size > 1024 * 1024) { showToast('图片不能超过 1MB，请压缩后重试'); ev.target.value = ''; return; }
+  var reader = new FileReader();
+  reader.onload = function(evt) {
+    screenBgDraft = evt.target.result;
+    var st = document.getElementById('screen-bg-status'); if (st) st.textContent = '已选择 ' + (file.size / 1024).toFixed(0) + 'KB，点「保存设置」生效';
+    var pv = document.getElementById('screen-bg-preview');
+    if (pv) { pv.style.display = 'block'; pv.querySelector('img').src = screenBgDraft; }
+    if (typeof markScreenSettingsDirty === 'function') markScreenSettingsDirty();
+  };
+  reader.readAsDataURL(file);
+};
+window.clearScreenBgDraft = function() {
+  screenBgDraft = '';
+  var fi = document.getElementById('screen-bg-file'); if (fi) fi.value = '';
+  var st = document.getElementById('screen-bg-status'); if (st) st.textContent = '已清除，点「保存设置」生效';
+  var pv = document.getElementById('screen-bg-preview'); if (pv) pv.style.display = 'none';
+  if (typeof markScreenSettingsDirty === 'function') markScreenSettingsDirty();
 };
 
 function setAccessUrl(elId, url, fallback) {
@@ -6804,6 +6857,14 @@ window.saveScreenSetting = function() {
   screenSettings.showProgress = document.getElementById('screen-show-progress').checked;
   try { localStorage.setItem('screenSettings', JSON.stringify(screenSettings)); } catch(e) {}
   sendMsg({ type: 'update_state', data: { screenSettings: Object.assign({}, screenSettings) } });
+  // v7.6.x: 提示屏背景图草稿有变更才提交 theme_update（与主题弹窗共用 theme.screenBgImage 通道）
+  if (screenBgDraft !== null) {
+    var curTheme = Object.assign({}, localState.theme || {});
+    curTheme.screenBgImage = screenBgDraft;
+    localState.theme = curTheme;
+    if (typeof applyTheme === 'function') applyTheme(curTheme);
+    sendMsg({ type: 'theme_update', theme: curTheme });
+  }
   showToast('提示屏设置已保存');
   var sdEl = document.getElementById('screen-settings-dirty'); if (sdEl) sdEl.style.display = 'none';
   if (ROLE === 'screen') renderScreenView();

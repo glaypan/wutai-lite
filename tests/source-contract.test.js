@@ -37,15 +37,10 @@ test('客户端包含 H1 重连恢复状态机', () => {
   assert.match(source, /\[1000,\s*2000,\s*4000,\s*8000\]/);
 });
 
-test('H2 Tally 包含结构化状态和确认动作', () => {
-  assert.match(server, /tallyId/);
-  assert.match(server, /tally_acknowledge/);
-  assert.match(server, /tally_dismiss/);
-  assert.match(source, /navigator\.vibrate/);
-  assert.match(source, /tallyId/);
-  assert.ok((source.match(/case ["']tally_signal["']/g) || []).length >= 2);
-  assert.ok((source.match(/case ["']tally_update["']/g) || []).length >= 2);
-  assert.ok((source.match(/case ["']tally_action_result["']/g) || []).length >= 2);
+test('H2 精简版无 Tally 契约（lite 定位：无字幕/无Tally，见 RUNBOOK_ACTIONS_FRONT 注释）', () => {
+  // lite 精简版刻意砍掉 Tally：服务端不应有 tally_acknowledge/tally_dismiss 处理器
+  assert.ok(!(server.match(/case ["']tally_acknowledge["']/g) || []).length, 'lite 不应含 tally_acknowledge');
+  assert.ok(!(server.match(/case ["']tally_dismiss["']/g) || []).length, 'lite 不应含 tally_dismiss');
 });
 
 test('H3 审批包含状态、原因、备注和审计字段', () => {

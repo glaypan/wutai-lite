@@ -2478,7 +2478,7 @@ body.mode-setup .completed-check-icon { cursor:pointer; pointer-events:auto; }
           <div style="margin-bottom:16px">
             <div style="font-size:14px;font-weight:600;margin-bottom:8px">提示屏背景图</div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <input type="file" id="screen-bg-file" accept="image/*" style="display:none">
+              <input type="file" id="screen-bg-file" accept="image/*" style="display:none" onchange="screenBgPick(event)">
               <button class="btn btn-sm btn-secondary" type="button" onclick="document.getElementById('screen-bg-file').click()">🖼 选择图片</button>
               <button class="btn btn-sm btn-secondary" type="button" onclick="clearScreenBgDraft()">🗑 清除背景</button>
               <span id="screen-bg-status" style="font-size:12px;color:var(--text-3)"></span>

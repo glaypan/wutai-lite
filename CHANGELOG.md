@@ -1,4 +1,7 @@
 # wutai 舞台流程表 wutai-lite 变更记录
+## 版本：1.6.0-fix（2026-08-27）背景图选图修复 + 测试对齐
+- 修复提示屏背景图选图不生效：screen-bg-file 补 onchange 绑定（screenBgPick），此前选图事件永不触发
+- stage-core 公开 API 契约测试对齐精简版实际导出（21 个，删 MIDI/Tally 4 项）+ 删 Tally 用例 + H2 契约改断言「无 tally 处理器」，npm test 25/25 全绿
 ## 版本：1.6.0（2026-08-27）提示屏背景图
 - 提示屏背景图（screenBgImage，URL/dataURL 上限 1MB）：theme_update 支持背景图设置，提示屏渲染背景图
 - 服务端 normalizeThemeConfig 支持 screenBgImage 字段（与正式版 7.7.0 同步）

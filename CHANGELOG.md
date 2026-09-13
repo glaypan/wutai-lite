@@ -1,4 +1,13 @@
 # wutai 舞台流程表 wutai-lite 变更记录
+## 版本：1.6.2（2026-09-13）节目单 UI 修复（序号胶囊分离 + 弹窗滚动锁）
+- 同步门户运行版 https://panloveli.top:8443/wutai/ 全部功能（v7.7.1 基线）
+- 节目列表：序号徽章与时间拆成独立胶囊（.prog-time-chip），修复视觉粘连成 "116:30"
+- 导入模式选择改大按钮二选一（.import-mode-btn，手机端热区 ≥52px）
+- 导入预览列表：手机端取消内层滚动，由 modal-box 统一滚动，避免嵌套容器吞手势
+- modal-replace-confirm 条件渲染时 getElementById 空值保护（避免 TypeError 阻断 updateModalOpenState）
+- updateModalOpenState 兼容 class=modal + style=display:none 的条件渲染弹窗
+- .reset-confirm-box 颜色改用 CSS 变量 var(--text-1)
+
 ## 版本：1.6.1（2026-09-13）PDF 导入反代前缀自适应 + cmaps 字体入库
 - 反代前缀自适应（ASSET_BASE）：门户 https://host:8443/wutai-ctrl/ 下 PDF 导入整体修复
   - 新增 ASSET_BASE 路径自省（正则识别 /wutai-* 前缀）+ p() 路径拼接函数

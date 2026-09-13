@@ -18,3 +18,12 @@ tess/
 **/unlock-state.json
 **/*.bak-*
 **/backups/
+
+# 同步/调试临时产物（不入库）
+backup-*/
+*.bak-*
+*_round*.py
+sync_*.py
+fix_*.py
+syntax_check_*.js
+verify-*.js

@@ -1841,6 +1841,8 @@ function serveDownload(req, res, urlPath) {
 var tessFileCache = {};
 // 第三方库（vendor/）内存缓存：同 tessFileCache 模式，避免热路径重复磁盘 I/O
 var vendorFileCache = {};
+// PDF.js CMap 资源（cmaps/）内存缓存：中文 PDF 字体映射，文件小但请求频繁
+var cmapFileCache = {};
 function serveRequest(req, res, serverType) {
   var isClientPortal = serverType === "client" || serverType === "screen" || serverType.indexOf("client-") === 0;
   var isControlServer = serverType === "control";
@@ -2278,6 +2280,24 @@ function serveRequest(req, res, serverType) {
     res.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="96" fill="#000"/><text x="256" y="340" font-size="280" text-anchor="middle" fill="#fff" font-family="sans-serif">舞</text></svg>');
     return;
   }
+  // PDF.js CMap 资源（cmaps/）：中文 CID 字体映射，缺失会导致中文 PDF 抽取为空
+  // 注意：文件名形如 UniGB-UCS2-H.bcmap，含连字符但无斜杠，做严格白名单校验
+  if (urlPath.indexOf("/cmaps/") === 0) {
+    var cmapFile = urlPath.replace("/cmaps/", "");
+    if (!/^[A-Za-z0-9._-]+\.bcmap$/.test(cmapFile)) { res.writeHead(403); res.end("Forbidden"); return; }
+    var cmapCached = cmapFileCache[cmapFile];
+    if (cmapCached) { res.writeHead(200, cmapCached.headers); res.end(cmapCached.data); return; }
+    var cmapPath = path.join(__dirname, "cmaps", cmapFile);
+    fs.readFile(cmapPath, function(err, data) {
+      if (err) { console.error("[cmaps] 文件未找到: " + cmapFile); res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" }); res.end("404 Not Found"); return; }
+      var cmapHeaders = { "Content-Type": "application/octet-stream", "Content-Length": data.length, "Cache-Control": "public, max-age=31536000, immutable" };
+      cmapFileCache[cmapFile] = { headers: cmapHeaders, data: data };
+      res.writeHead(200, cmapHeaders);
+      res.end(data);
+    });
+    return;
+  }
+
   if (urlPath.indexOf("/tess/") === 0) {
     var tessFile = urlPath.replace("/tess/", "");
     if (tessFile.indexOf("..") !== -1 || tessFile.indexOf("/") !== -1) { res.writeHead(403); res.end("Forbidden"); return; }

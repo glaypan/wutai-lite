@@ -1,4 +1,15 @@
 # wutai 舞台流程表 wutai-lite 变更记录
+## 版本：1.6.1（2026-09-13）PDF 导入反代前缀自适应 + cmaps 字体入库
+- 反代前缀自适应（ASSET_BASE）：门户 https://host:8443/wutai-ctrl/ 下 PDF 导入整体修复
+  - 新增 ASSET_BASE 路径自省（正则识别 /wutai-* 前缀）+ p() 路径拼接函数
+  - window.fetch 包装器：自动为 /api/、/tess/、/download/、/vendor/、/manifest.json 补前缀
+  - DOMContentLoaded 改写 .download-card 下载链接
+  - 6 处硬编码 /tess/* 改为 p('tess/*')（pdf.min.js / pdf.worker.min.js / tesseract.min.js / worker.min.js / corePath / langPath）
+- cmaps 字体（168 个 .bcmap，1.6M）纳入版本库，clone 后 PDF 中文解析开箱可用
+- server-standalone.js cmaps 路由加固：路径白名单正则 + 长缓存头（immutable）+ 404 带 Content-Type 与日志
+- JS 语法校验通过（node --check），五仓 ASSET_BASE 块 md5 逐字节一致
+
+
 ## 版本：1.6.0-fix（2026-08-27）背景图选图修复 + 测试对齐
 - 修复提示屏背景图选图不生效：screen-bg-file 补 onchange 绑定（screenBgPick），此前选图事件永不触发
 - stage-core 公开 API 契约测试对齐精简版实际导出（21 个，删 MIDI/Tally 4 项）+ 删 Tally 用例 + H2 契约改断言「无 tally 处理器」，npm test 25/25 全绿

@@ -13,6 +13,67 @@
 <title>舞台流程表 v6.0.7</title>
 <!-- PDF.js + Tesseract.js（从服务端加载，完全离线，带重试机制） -->
 <script>
+
+// ============================================================
+// v6.6.3: 反代前缀自适应（修复门户 https://host:8443/wutai-ctrl/ 下
+//         /tess/* 、/api/* 、/download/* 、/manifest.json 等绝对路径
+//         请求落到门户根导致假200空响应 / 404 的问题）
+//   两种部署形态：
+//     ① 裸端口  http://host:18089/          → 前缀 = ''
+//     ② 门户    https://host:8443/wutai-ctrl/ → 前缀 = '/wutai-ctrl'
+//   说明：不做网络探测（门户根返回 200 空 body 会误判），改由路径自省推导；
+//        未知路径退化为 ''（等价修复前行为，不引入新故障）。
+// ============================================================
+var ASSET_BASE = (function () {
+  try {
+    var pp = (location.pathname || '');
+    // 末尾斜杠可有可无，两种都匹配；只取最前一段 /wutai* 前缀
+    var pm = pp.match(/^\/(wutai(?:-ctrl|-client|-screen|-director|-assistant|-backstage|-console|-(?:subtitle|screen)[a-z-]*)?)(?:\/|$)/);
+    return (pm && pm[1]) ? '/' + pm[1] : '';
+  } catch (e) {
+    return '';
+  }
+})();
+
+// 拼接资源地址：p('tess/pdf.min.js') → '/wutai-ctrl/tess/pdf.min.js'（门户）
+//                              → '/tess/pdf.min.js'（裸端口）
+function p(path) {
+  if (!path) return ASSET_BASE;
+  if (path.charAt(0) !== '/') path = '/' + path;
+  return ASSET_BASE + path;
+}
+
+// API 调用包装器：自动补前缀，调用处无需改写
+// （门户下前端写死 /api/* 会被 Caddy 的 handle /api/* 路由到 CuePilot 返回 404）
+(function () {
+  try {
+    var _fetch = window.fetch ? window.fetch.bind(window) : null;
+    if (!_fetch) return;
+    window.fetch = function (input, init) {
+      try {
+        if (typeof input === 'string' && input.charAt(0) === '/' && input.indexOf(ASSET_BASE + '/') !== 0) {
+          if (/^\/(api|tess|download|vendor)\//.test(input) || /^\/(manifest\.json|icon\.svg|favicon)/.test(input)) {
+            input = ASSET_BASE + input;
+          }
+        }
+      } catch (e) { /* 保底：改写失败则原样发出 */ }
+      return _fetch(input, init);
+    };
+  } catch (e) { /* 环境不支持则跳过 */ }
+})();
+
+// 下载链接前缀自适应（<a href> 不受 fetch 包装器覆盖，DOM 就绪后改写）
+document.addEventListener('DOMContentLoaded', function () {
+  try {
+    var links = document.querySelectorAll('.download-card[href^="/download/"]');
+    for (var i = 0; i < links.length; i++) {
+      var h = links[i].getAttribute('href');
+      if (h && h.charAt(0) === '/' && h.indexOf(ASSET_BASE + '/') !== 0) {
+        links[i].setAttribute('href', ASSET_BASE + h);
+      }
+    }
+  } catch (e) { /* 保底：改写失败保持原样 */ }
+});
 // 动态加载脚本，支持重试
 function loadScript(url, callback, retries) {
   if (retries == null || typeof retries !== 'number' || !isFinite(retries) || retries < 0 || Math.floor(retries) !== retries) retries = 3;
@@ -56,13 +117,13 @@ function renderOcrResourceStatus() {
 }
 
 // 加载 PDF.js
-loadScript('/tess/pdf.min.js', function(err) {
+loadScript(p('tess/pdf.min.js'), function(err) {
   if (err) {
     console.error('PDF.js 加载失败，PDF导入功能将不可用');
     return;
   }
   if (typeof pdfjsLib !== 'undefined') {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = '/tess/pdf.worker.min.js';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = p('tess/pdf.worker.min.js');
     PDFJS_READY = true;
     renderOcrResourceStatus();
     console.log('[PDF.js] 已加载，版本: ' + (pdfjsLib.version || 'unknown'));
@@ -72,7 +133,7 @@ loadScript('/tess/pdf.min.js', function(err) {
 });
 
 // 加载 Tesseract.js
-loadScript('/tess/tesseract.min.js', function(err) {
+loadScript(p('tess/tesseract.min.js'), function(err) {
   if (err) {
     console.error('Tesseract.js 加载失败，OCR功能将不可用');
     return;
@@ -88,9 +149,9 @@ loadScript('/tess/tesseract.min.js', function(err) {
 
 // OCR 离线配置
 var TESS_CONFIG = {
-  workerPath: '/tess/worker.min.js',
-  corePath: '/tess/',
-  langPath: '/tess',
+  workerPath: p('tess/worker.min.js'),
+  corePath: p('tess'),
+  langPath: p('tess'),
   gzip: true
 };
 </script>
@@ -1050,6 +1111,26 @@ body[data-role] .role-badge { background:color-mix(in srgb, var(--role-accent) 1
   font-size:12px;
   font-weight:600;
   flex-shrink:0;
+  /* v7.x: 序号与节目名/时间强制留白，避免视觉粘连成 "116:30" */
+  margin-right:8px;
+  box-shadow:0 0 0 1px rgba(255,255,255,0.08);
+}
+/* v7.x 修复①：时间独立胶囊，与序号徽章视觉分离 */
+.prog-time-chip {
+  display:inline-flex;
+  align-items:center;
+  flex-shrink:0;
+  padding:2px 8px;
+  margin-right:8px;
+  border-radius:10px;
+  background: rgba(59,130,246,0.16);
+  border:1px solid rgba(59,130,246,0.32);
+  color:#93c5fd;
+  font-size:11px;
+  font-weight:600;
+  font-variant-numeric: tabular-nums;
+  white-space:nowrap;
+  letter-spacing:0.2px;
 }
 .program-item.active .prog-no {
   background:var(--ios-blue);
@@ -1395,6 +1476,13 @@ body.ctrl-mode #modal-screen-setting .modal-box { padding-top:calc(64px + env(sa
 .import-drop-zone { border:2px dashed rgba(255,255,255,0.2); border-radius:12px; padding:32px; text-align:center; color:var(--text-2); margin:12px 0; cursor:pointer; transition:border-color .2s; }
 .import-drop-zone:hover, .import-drop-zone.dragover { border-color:var(--ios-blue); }
 .import-preview-list { max-height:300px; overflow-y:auto; margin:12px 0; }
+/* 导入模式选择：大按钮二选一（手机端保证热区） */
+.import-mode-row { display:flex; gap:10px; margin:12px 0; }
+.import-mode-btn { flex:1; position:relative; display:flex; align-items:center; justify-content:center; min-height:48px; padding:12px 10px; border:2px solid var(--stroke); border-radius:10px; background:var(--bg-elev-2); color:var(--text-2); font-size:14px; cursor:pointer; text-align:center; transition:border-color .15s ease, background .15s ease, color .15s ease; -webkit-tap-highlight-color:transparent; }
+.import-mode-btn input { position:absolute; opacity:0; width:0; height:0; pointer-events:none; }
+.import-mode-btn.is-checked { border-color:var(--primary); background:rgba(255,255,255,0.06); color:var(--text); font-weight:700; }
+.import-mode-btn:has(input:checked) { border-color:var(--primary); background:rgba(255,255,255,0.06); color:var(--text); font-weight:700; }
+.import-mode-btn:has(input:focus-visible) { outline:2px solid var(--primary); outline-offset:2px; }
 .import-preview-item { display:flex; align-items:center; padding:8px 12px; border-radius:8px; background:rgba(44,44,46,0.5); margin-bottom:4px; }
 .import-preview-item input { margin-right:8px; }
 .import-preview-item .ip-name { flex:1; }
@@ -1577,7 +1665,7 @@ body.ctrl-mode #modal-screen-setting .modal-box { padding-top:calc(64px + env(sa
 body.mode-setup .completed-check-icon { cursor:pointer; pointer-events:auto; }
 /* 重置确认弹窗 */
 .reset-confirm-box { text-align:center; padding:8px 0; }
-.reset-confirm-box p { font-size:16px; margin-bottom:16px; color:#fff; }
+.reset-confirm-box p { font-size:16px; margin-bottom:16px; color:var(--text-1); }
 /* 响应式 */
 @media (max-width: 768px) {
   .nav-go { min-height:96px; font-size:26px; min-width:200px; padding:0 50px; }
@@ -1767,6 +1855,10 @@ body.mode-setup .completed-check-icon { cursor:pointer; pointer-events:auto; }
   .mobile-entry-grid button { min-width:0; min-height:44px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; font-size:11px; padding:6px 2px; border:1px solid var(--stroke); border-radius:var(--radius-sm); background:var(--bg-elev); color:var(--text-2); cursor:pointer; }
   .mobile-entry-grid button:active { background:var(--bg-elev-3); color:var(--primary); }
   .icon-btn, .btn, .mode-toggle-btn, .text-input, select { min-height:44px; }
+  /* 手机端：取消内层滚动，由外层 .modal-box 统一滚动，避免嵌套容器吞手势 */
+  .import-preview-list { max-height:none; overflow-y:visible; }
+  .import-mode-row { flex-direction:row; gap:8px; }
+  .import-mode-btn { min-height:52px; font-size:15px; }
   .program-channel-tools, .quick-ch-row { flex-wrap:wrap; }
 }
 @media (max-width:768px) {
@@ -2623,6 +2715,25 @@ body.mode-setup .completed-check-icon { cursor:pointer; pointer-events:auto; }
     </div>
   </div>
 
+  <!-- 导入替换二次确认弹窗 -->
+  <div id="modal-replace-confirm" class="modal hidden" style="z-index:1300;">
+    <div class="modal-box">
+      <div class="modal-header-row">
+        <h3>⚠️ 替换前请先备份</h3>
+        <button class="icon-btn" type="button" onclick="closeModal('modal-replace-confirm')" title="关闭替换确认" aria-label="关闭替换确认">✕</button>
+      </div>
+      <div class="reset-confirm-box">
+        <p id="replace-confirm-text">将用新导入的节目覆盖现有 <b id="replace-confirm-count">0</b> 个节目，原有节目单设置将被清空且无法恢复。</p>
+        <p style="color:var(--text-2);font-size:13px">建议先点「💾 另存为备份」导出当前节目单，再进行替换。</p>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal('modal-replace-confirm')">取消</button>
+        <button class="btn btn-secondary" onclick="exportProjectPackage()">💾 另存为备份</button>
+        <button class="btn btn-primary" id="replace-confirm-btn" style="background:var(--ios-orange);border-color:rgba(255,159,10,0.5)">🔁 确认替换</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 添加节目弹窗 -->
   <div id="modal-add" class="modal hidden">
     <div class="modal-box">
@@ -2727,11 +2838,11 @@ body.mode-setup .completed-check-icon { cursor:pointer; pointer-events:auto; }
         <textarea id="import-text-input" class="text-input" style="min-height:160px;width:100%;resize:vertical;background:var(--bg-1);border:1px solid var(--border);border-radius:8px;padding:12px;color:var(--text);font-size:14px;" placeholder="每行一个节目，格式示例:&#10;1. 开场白&#10;2. 第一幕&#10;3. 中场休息&#10;&#10;或带时间:&#10;19:30 开场白&#10;19:45 第一幕"></textarea>
         <button class="btn btn-primary" style="margin-top:8px;width:100%" onclick="parseManualText()">解析文本</button>
       </div>
-      <div id="import-preview" class="import-preview-list" style="display:none"></div>
-      <div id="import-mode-row" style="display:none;margin:12px 0">
-        <label style="margin-right:16px"><input type="radio" name="import-mode" value="append" checked> 追加到末尾</label>
-        <label><input type="radio" name="import-mode" value="replace"> 替换全部</label>
+      <div id="import-mode-row" class="import-mode-row" style="display:none">
+        <label class="import-mode-btn is-checked"><input type="radio" name="import-mode" value="append" checked><span>➕ 追加到末尾</span></label>
+        <label class="import-mode-btn"><input type="radio" name="import-mode" value="replace"><span>🔁 替换全部</span></label>
       </div>
+      <div id="import-preview" class="import-preview-list" style="display:none"></div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="closeModal('modal-import')">取消</button>
         <button class="btn btn-primary" id="import-confirm-btn" onclick="confirmImport()" style="display:none">确认导入</button>
@@ -6100,7 +6211,17 @@ function renderProgramList() {
       '<div style="display:flex;justify-content:space-between;align-items:center">' +
         '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">' +
           selBox +
-          '<span class="prog-no" style="margin-right:8px;">' + (idx + 1) + '</span>' +
+          '<span class="prog-no">' + (idx + 1) + '</span>' +
+          (function() {
+            // v7.x 修复①：时间独立成蓝色胶囊，与序号徽章彻底分离
+            var t = (prog.time || '').trim();
+            if (!t) {
+              var m = /^【时间】\s*(.+)$/m.exec(prog.notes || '');
+              if (m) t = m[1].trim();
+            }
+            if (!t) return '';
+            return '<span class="prog-time-chip">' + escapeHtml(t) + '</span>';
+          })() +
           '<strong>' + escapeHtml(prog.name) + '</strong>' + completedBadge +
         '</div>' +
         '<span style="display:flex;align-items:center;gap:6px;"><span>' + (prog.duration > 0 ? formatDuration(prog.duration) : "无时长") + '</span>' + dragHandle + '</span>' +
@@ -7020,8 +7141,23 @@ window.syncMobileListUI = syncMobileListUI;
 // ---------- 弹窗 ----------
 window.closeModal = function (id) {
   if (id === 'modal-timeline' && !confirmRehearsalExit('关闭时间轴')) return false;
-  document.getElementById(id).classList.add('hidden');
-  updateModalOpenState();
+  // v7.x 修复②：元素不存在时不得抛异常。
+  // 旧写法 document.getElementById(id).classList.add('hidden') 在动态弹窗
+  // （如条件渲染的 modal-replace-confirm）不存在时抛 TypeError，
+  // 导致下面的 updateModalOpenState() 永不执行 → body 残留 modal-open
+  // → position:fixed + overflow:hidden → 页面彻底无法滚动，必须刷新。
+  var el = document.getElementById(id);
+  if (el) {
+    el.classList.add('hidden');
+  } else if (window.console && console.warn) {
+    console.warn('[closeModal] 元素不存在，已跳过:', id);
+  }
+  try {
+    updateModalOpenState();
+  } catch (e) {
+    // 兜底：即使状态更新异常，也必须解除滚动锁，绝不让页面卡死
+    document.body.classList.remove('modal-open');
+  }
   return true;
 };
 
@@ -8179,8 +8315,14 @@ function parsePdf(buf) {
     return;
   }
 
-  pdfjsLib.getDocument({ data: buf }).promise.then(function(pdf) {
+  // CMap 参数：中文 CID 字体（GBK/GB18030 等）必须提供 cMapUrl 才能解析，否则抽取为空
+  pdfjsLib.getDocument({
+    data: buf,
+    cMapUrl: p('cmaps/'),
+    cMapPacked: true
+  }).promise.then(function(pdf) {
     var parts = [];
+    var tblItems = [];          // 表格感知解析用：保留原始坐标项
     var chain = Promise.resolve();
     var totalPages = pdf.numPages;
     if (totalPages > IMPORT_PDF_PAGE_LIMIT) throw new Error('PDF 页数超过 500 页限制');
@@ -8195,6 +8337,7 @@ function parsePdf(buf) {
             return page.getTextContent().then(function(tc) {
               var lines = groupTextItemsByLine(tc.items);
               parts.push(lines.join('\n'));
+              if (pageNum === 1 && tc.items && tc.items.length) tblItems = tc.items;
             });
           });
         });
@@ -8203,6 +8346,27 @@ function parsePdf(buf) {
 
     return chain.then(function() {
       var allText = parts.join('\n').trim();
+
+      // 【新增】优先尝试表格型节目单解析（时间/内容/地点/具体/人员/道具/音乐）
+      if (tblItems.length) {
+        try {
+          var tbl = extractTableRows(tblItems);
+          var tblProgs = tbl ? tableRowsToPrograms(tbl) : null;
+          if (tblProgs && tblProgs.length >= 2) {
+            if (statusEl) statusEl.style.display = 'none';
+            if (spinner) spinner.style.display = 'none';
+            setImportCancelVisible(false);
+            importPreviewData = tblProgs;
+            renderImportPreview();
+            showToast('PDF 解析成功（表格模式），识别到 ' + tblProgs.length + ' 个节目');
+            return;
+          }
+        } catch (e) {
+          // 表格解析异常 → 静默回退到文本模式
+          if (window.console && console.warn) console.warn('表格解析失败，回退文本模式:', e);
+        }
+      }
+
       // 如果提取到足够文本，直接使用
       if (allText.length > 50) {
         if (statusEl) statusEl.style.display = 'none';
@@ -8354,6 +8518,205 @@ function parseDocx(buf) {
     });
   });
 }
+// ============ PDF 表格感知解析（新增）============
+// 用于还原「时间/内容/地点/具体/人员/道具/音乐」七列表格型节目单
+// 核心：利用 pdf.js 文本坐标，按 x 间隙切分单元格、按 y 聚类成行
+
+function _tblMedian(arr) {
+  if (!arr.length) return 0;
+  var a = arr.slice().sort(function(x, y) { return x - y; });
+  var m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+
+// 从单页 items 还原表格 → 行数组，每行是 { y, cells: [] }
+function extractTableRows(items) {
+  var ROW_TOL = 5;    // y 聚类容差
+  var GAP = 20;       // x 间隙阈值：超过即换列
+  var COL_GAP = 30;   // 表头列起点最小间距
+
+  // 1) 收集有效文本项（过滤纯空格与无 str 项）
+  var list = [];
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i];
+    if (!it || typeof it.str !== 'string') continue;
+    if (!it.str.trim()) continue;
+    if (!it.transform) continue;
+    list.push({ s: it.str, x: it.transform[4], y: it.transform[5], w: it.width || 0 });
+  }
+  if (list.length < 4) return null;
+
+  // 2) y 聚类成行
+  list.sort(function(a, b) { return (b.y - a.y) || (a.x - b.x); });
+  var rows = [];
+  for (var j = 0; j < list.length; j++) {
+    var cur = list[j], hit = null;
+    for (var k = 0; k < rows.length; k++) {
+      if (Math.abs(rows[k].y - cur.y) < ROW_TOL) { hit = rows[k]; break; }
+    }
+    if (!hit) { hit = { y: cur.y, items: [] }; rows.push(hit); }
+    hit.items.push(cur);
+  }
+  for (var r = 0; r < rows.length; r++) {
+    rows[r].items.sort(function(a, b) { return a.x - b.x; });
+  }
+
+  // 3) 找表头行 → 列起点
+  var headerIdx = -1, colX = [];
+  for (var h = 0; h < rows.length; h++) {
+    var txt = rows[h].items.map(function(z) { return z.s; }).join('');
+    if (txt.indexOf('时间') >= 0 && (txt.indexOf('内容') >= 0 || txt.indexOf('项目') >= 0) &&
+        (txt.indexOf('地点') >= 0 || txt.indexOf('备注') >= 0 || txt.indexOf('人员') >= 0)) {
+      headerIdx = h;
+      var hs = rows[h].items;
+      for (var q = 0; q < hs.length; q++) {
+        var hx = hs[q].x;
+        if (!colX.length || hx - colX[colX.length - 1] > COL_GAP) colX.push(Math.round(hx));
+      }
+      break;
+    }
+  }
+  if (headerIdx < 0 || colX.length < 3) return null;   // 非表格型 → 交回文本解析
+
+  // 4) 行内按 x 间隙切段 → 每段归到最近列起点
+  function splitCells(row) {
+    var segs = [], seg = null;
+    for (var i2 = 0; i2 < row.items.length; i2++) {
+      var z = row.items[i2];
+      if (!z.s.trim()) continue;
+      if (seg && (z.x - seg.x2) <= GAP) {
+        seg.text += z.s;
+        seg.x2 = z.x + z.w;
+      } else {
+        seg = { text: z.s, x1: z.x, x2: z.x + z.w };
+        segs.push(seg);
+      }
+    }
+    var cells = [];
+    for (var c = 0; c < colX.length; c++) cells.push('');
+    for (var s2 = 0; s2 < segs.length; s2++) {
+      var sg = segs[s2], mid = (sg.x1 + sg.x2) / 2, ci = 0, best = Infinity;
+      for (var c2 = 0; c2 < colX.length; c2++) {
+        var d = Math.abs(mid - colX[c2]);
+        if (d < best) { best = d; ci = c2; }
+      }
+      // 同一列内已有内容时用换行拼接（保留原始分段语义）
+      cells[ci] = cells[ci] ? (cells[ci] + sg.text) : sg.text;
+    }
+    return cells;
+  }
+
+  // 5) 收集数据行 + 合并「同一单元格换行」产生的伪行
+  var raw = [];
+  for (var d2 = headerIdx + 1; d2 < rows.length; d2++) {
+    if (rows[d2].items.length < 2) continue;
+    raw.push({ y: rows[d2].y, cells: splitCells(rows[d2]) });
+  }
+  if (!raw.length) return null;
+
+  var gaps = [];
+  for (var g = 0; g < raw.length - 1; g++) gaps.push(Math.abs(raw[g].y - raw[g + 1].y));
+  var normalGap = _tblMedian(gaps) || 28;
+  var MERGE_TOL = normalGap * 0.5;
+
+  var merged = [];
+  for (var m2 = 0; m2 < raw.length; m2++) {
+    var row = raw[m2];
+    if (merged.length) {
+      var prev = merged[merged.length - 1];
+      if (Math.abs(prev.y - row.y) < MERGE_TOL) {
+        for (var c3 = 0; c3 < row.cells.length; c3++) {
+          var v = String(row.cells[c3]).trim();
+          if (v) prev.cells[c3] = prev.cells[c3] ? (prev.cells[c3] + v) : v;
+        }
+        continue;
+      }
+    }
+    merged.push({ y: row.y, cells: row.cells.slice() });
+  }
+
+  // 6) 时间列嗅探 + 合并单元格时间继承
+  var TIME_RE = /^\d{1,2}\s*[：:]\s*\d{2}\s*[-~至～—]\s*\d{1,2}\s*[：:]\s*\d{2}/;
+  var lastTime = '';
+  var out = [];
+  for (var o = 0; o < merged.length; o++) {
+    var cs = merged[o].cells;
+
+    // 时间跑到别的列 → 拉回时间列
+    for (var ci2 = 1; ci2 < cs.length; ci2++) {
+      var s3 = String(cs[ci2]);
+      var mt = s3.match(TIME_RE);
+      if (mt) {
+        if (!String(cs[0]).trim()) cs[0] = mt[0];
+        cs[ci2] = s3.replace(mt[0], '').trim();
+      }
+    }
+    // 时间列内混入非时间内容 → 挪到内容列
+    if (cs[0]) {
+      var m0 = String(cs[0]).match(TIME_RE);
+      if (m0) {
+        var rest0 = String(cs[0]).replace(m0[0], '').trim();
+        cs[0] = m0[0];
+        if (rest0) cs[1] = rest0 + (cs[1] ? cs[1] : '');
+      }
+    }
+    // 合并单元格：时间为空则继承
+    if (!String(cs[0]).trim() && lastTime) cs[0] = lastTime;
+    if (String(cs[0]).trim()) lastTime = String(cs[0]).trim();
+
+    // 整行几乎为空则丢弃
+    var hasContent = false;
+    for (var chk = 0; chk < cs.length; chk++) {
+      if (String(cs[chk]).trim()) { hasContent = true; break; }
+    }
+    if (!hasContent) continue;
+    out.push({ time: String(cs[0]).trim(), cells: cs });
+  }
+  if (out.length < 2) return null;
+
+  return { colX: colX, timeColIndex: 0, rows: out, headerText: rows[headerIdx].items.map(function(z) { return z.s; }).join('').trim() };
+}
+
+// 表格行 → 节目数组
+function tableRowsToPrograms(tbl) {
+  var programs = [];
+  // 列映射：0=时间 1=内容/项目 2=地点 3=具体 4=人员 5=道具准备 6=音乐
+  var noteLabels = ['时间', '内容', '地点', '具体', '人员', '道具', '音乐'];
+  for (var i = 0; i < tbl.rows.length; i++) {
+    var row = tbl.rows[i], cs = row.cells;
+    var name = String(cs[1] || '').trim();          // 第 2 列 = 内容/项目
+    if (!name) continue;                            // 无节目名 → 跳过
+    var notesParts = [];
+    for (var k = 2; k < cs.length; k++) {           // 从第 3 列起逐列收集备注
+      var v = String(cs[k] || '').trim();
+      if (!v || v === '/') continue;
+      var label = noteLabels[k] || ('列' + (k + 1));
+      // 音乐列单独走 musicCue，不重复入 notes
+      if (k === 6) continue;
+      notesParts.push('【' + label + '】' + v);
+    }
+    var music = cs.length >= 7 ? String(cs[6] || '').trim() : '';
+    if (music === '/') music = '';
+    // v7.x 修复①：时间不再拼进 name（旧写法 row.time + ' ' + name 会让渲染层
+    // 序号徽章与时间粘连成 "116:30-16:40"）。时间单独存 time 字段，
+    // 并由 notes 头部承载，渲染层用独立元素展示。
+    var notesLines = [];
+    if (row.time) notesLines.push('【时间】' + row.time);
+    if (notesParts.length) notesLines.push(notesParts.join('\n'));
+    programs.push({
+      name: name,
+      time: row.time || '',
+      duration: 0,
+      notes: notesLines.join('\n'),
+      musicCue: music,
+      status: 'pending',
+      useChannels: []
+    });
+  }
+  return programs.length >= 2 ? programs : null;
+}
+// ============ 表格感知解析结束 ============
+
 function handleParsedText(text) {
   importPreviewData = textToPrograms(text);
   renderImportPreview();
@@ -8525,9 +8888,44 @@ function renderImportPreview() {
 window.confirmImport = function() {
   if (importPreviewData.length === 0) return;
   if (typeof can === 'function' && !can('importIt')) { showToast('无导入权限'); return; }
+  var mode = readImportMode();
+  // 替换模式且已有节目 → 先弹二次确认（提示备份）
+  var existing = (typeof localState !== 'undefined' && Array.isArray(localState.programs)) ? localState.programs.length : 0;
+  if (mode === 'replace' && existing > 0) { openReplaceConfirm(existing); return; }
+  doImportPrograms(mode);
+};
+
+// 读取当前选中的导入模式（radio 仅视觉隐藏，:checked 状态照常）
+function readImportMode() {
   var mode = 'append';
   var radios = document.getElementsByName('import-mode');
   for (var i = 0; i < radios.length; i++) { if (radios[i].checked) { mode = radios[i].value; break; } }
+  return mode;
+}
+
+// 同步大按钮高亮（降级方案，不依赖 :has()）
+function syncImportModeUI() {
+  var row = document.getElementById('import-mode-row');
+  if (!row) return;
+  var labels = row.querySelectorAll('.import-mode-btn');
+  for (var i = 0; i < labels.length; i++) {
+    var input = labels[i].querySelector('input');
+    if (input && input.checked) { labels[i].classList.add('is-checked'); }
+    else { labels[i].classList.remove('is-checked'); }
+  }
+}
+
+// 打开替换二次确认框
+function openReplaceConfirm(count) {
+  var cnt = document.getElementById('replace-confirm-count');
+  if (cnt) cnt.textContent = count;
+  var m = document.getElementById('modal-replace-confirm');
+  if (m) m.classList.remove('hidden');
+}
+
+// 真正执行导入的落地点
+function doImportPrograms(mode) {
+  if (importPreviewData.length === 0) return;
   // 清理内部字段（seq, time 不发送到服务器）
   var cleanPrograms = importPreviewData.map(function(p) {
     return {
@@ -8540,12 +8938,51 @@ window.confirmImport = function() {
     };
   });
   sendMsg({ type: 'import_programs', programs: cleanPrograms, mode: mode, role: (typeof ROLE !== 'undefined' ? ROLE : 'control') });
+  // v7.x 修复：modal-replace-confirm 条件渲染，追加模式下不存在 → getElementById 返回 null
+  // 旧写法 closeModal('modal-replace-confirm') 会抛 TypeError，导致 updateModalOpenState()
+  // 执行不到，body.modal-open (position:fixed;overflow:hidden) 残留 → 返回节目列表无法滚动
   closeModal('modal-import');
-  showToast('已导入 ' + cleanPrograms.length + ' 个节目');
+  var _rcEl = document.getElementById('modal-replace-confirm');
+  if (_rcEl) closeModal('modal-replace-confirm');
+  // 兜底：强制清除残留 modal-open（修复滚动失效）
+  (function unlockBodyScroll() {
+    var anyOpen = false;
+    var _ms = document.querySelectorAll('.modal');
+    for (var _i = 0; _i < _ms.length; _i++) {
+      if (!_ms[_i].classList.contains('hidden')) { anyOpen = true; break; }
+    }
+    if (!anyOpen) {
+      document.body.classList.remove('modal-open');
+      document.documentElement.style.overflow = '';
+      document.body.style.overflow = '';
+    }
+  })();
+  if (typeof renderProgramList === 'function') { try { renderProgramList(); } catch (e) {} }
+  var n = cleanPrograms.length;
   importPreviewData = [];
-};
+  setTimeout(function() { showToast((mode === 'replace' ? '已替换为 ' : '已导入 ') + n + ' 个节目'); }, 250);
+}
 
 // ---------- 时间轴、多轨 Cue 与工程工具 ----------
+// 导入模式大按钮：绑定高亮同步 + 点击选中（不用 :has()，兼容老 WebView）
+(function bindImportModeUI() {
+  var row = document.getElementById('import-mode-row');
+  if (!row) return;
+  var inputs = row.querySelectorAll('input[name="import-mode"]');
+  for (var i = 0; i < inputs.length; i++) {
+    inputs[i].onchange = syncImportModeUI;
+  }
+  syncImportModeUI();
+})();
+// 替换确认按钮（判空 + onclick 赋值，沿用项目既有写法）
+var _replaceConfirmBtn = document.getElementById('replace-confirm-btn');
+if (_replaceConfirmBtn) {
+  _replaceConfirmBtn.onclick = function() {
+    closeModal('modal-replace-confirm');
+    doImportPrograms('replace');
+  };
+}
+
 function cueId() { return 'cue_' + Date.now() + '_' + Math.random().toString(36).slice(2,7); }
 function cueTrackPurpose(track) {
   var type = String(track && (track.type || track.id) || '');

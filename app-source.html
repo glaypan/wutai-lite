@@ -1972,11 +1972,35 @@ body.mode-setup .completed-check-icon { cursor:pointer; pointer-events:auto; }
   .header-center > * { min-width:0; max-width:100%; flex-shrink:1; }
   .mode-toggle-btn { flex:0 0 auto; max-width:92px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .conn-status { flex:1 1 0; min-width:0; max-width:calc(100% - 100px); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  #master-lock-bar { order:3; flex:1 0 100%; width:100%; box-sizing:border-box; min-width:0; overflow:hidden; }
-  #master-lock-bar * { min-width:0; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  #runbook-banner { order:4; flex:1 0 100%; width:100%; box-sizing:border-box; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  #unified-status-bar { order:3; flex:1 0 100%; width:100%; box-sizing:border-box; min-width:0; overflow:hidden; }
+  #unified-status-bar * { min-width:0; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #unified-status-bar .ml-seg-rb { display:none !important; }
   body { overflow-x:hidden; }
 }
+
+/* ─── v7.7.0 统一状态栏：主控锁三态 + runbook 内联段 ─── */
+  .ml-bar { display:flex; align-items:center; font-size:12px; line-height:1.4; border:1px solid rgba(128,128,128,0.22); border-radius:6px; padding:3px 8px; }
+  .ml-seg { display:inline-flex; align-items:center; gap:6px; padding:2px 8px; }
+  .ml-seg-lock { flex:0 0 auto; }
+  .ml-seg-rb { flex:1 1 auto; min-width:0; border-left:1px solid rgba(128,128,128,0.28); }
+  .ml-seg-mode { flex:0 0 auto; }
+  .ml-bar-self { border-color:rgba(200,149,47,0.45); }
+  .ml-bar-other { border-color:rgba(74,127,181,0.45); }
+  .ml-btn { border:1px solid currentColor; background:transparent; color:inherit; font:inherit; font-size:11px; padding:1px 7px; border-radius:3px; cursor:pointer; opacity:0.9; }
+  .ml-btn:hover { opacity:1; }
+  .ml-state-idle { color:#8a8f98; }
+  .ml-state-self { color:#c8952f; }
+  .ml-state-other { color:#4a7fb5; }
+  .ml-btn-hold { color:#5f9b5f; }
+  .ml-btn-release { color:#b5504a; }
+  .ml-btn-take { color:#4a7fb5; }
+  .ml-rb-title { font-weight:600; }
+  .ml-rb-step, .ml-rb-chain { opacity:0.75; }
+  .ml-rb-breaker { color:#b5504a; font-weight:600; }
+  .ml-mode-badge { font-size:10px; opacity:0.6; }
+  .ml-confirm { color:#b5504a; font-weight:600; }
+  @media (max-width:768px) { .ml-seg-rb { display:none !important; } }
+
 
 </style>
 </head>
@@ -4521,94 +4545,257 @@ var masterLockState = { mode: "strict", holder: null, selfHeld: false, inited: f
 function masterLockInit() {
   if (masterLockState.inited) return;
   masterLockState.inited = true;
+  
   var bar = document.createElement("div");
-  bar.id = "master-lock-bar";
-  bar.style.cssText = "display:none;align-items:center;gap:6px;background:rgba(16,20,26,0.92);border:1px solid rgba(255,255,255,0.14);border-radius:10px;padding:5px 9px;font-size:12px;box-shadow:0 2px 10px rgba(0,0,0,0.4)";
-  bar.innerHTML = '<span id="master-lock-icon">🔒</span>'
-    + '<span id="master-lock-text" style="color:#cfd4dc;white-space:nowrap">主控锁加载中…</span>'
-    + '<button id="master-lock-btn" onclick="window.masterLockAction()" style="margin-left:2px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.25);color:#fff;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer">获取主控锁</button>'
-    + '<button id="master-lock-mode" onclick="window.masterLockToggleMode()" title="切换 strict/loose 锁模式" style="background:transparent;border:1px dashed rgba(255,255,255,0.3);color:#8e98a3;border-radius:6px;padding:2px 6px;font-size:10px;cursor:pointer">strict</button>';
-  // v7.6.0-P1: 主控锁并入顶部状态栏居中（ctrl-mode 下并入专注界面横幅），避免悬浮遮挡
-  var lockHost = document.querySelector('.ctrl-mode-banner') || document.querySelector('.header-center') || document.body;
-  lockHost.appendChild(bar);
-  masterLockRender();
-  // P2-2: runbook banner 随主控锁同排初始化
+  bar.id = "unified-status-bar";
+  bar.className = "ml-bar";
+  bar.style.display = "none";
+  
+  var lockSeg = document.createElement("div");
+  lockSeg.id = "status-lock-seg";
+  lockSeg.className = "ml-seg ml-seg-lock";
+  lockSeg.innerHTML = '<span id="lock-icon" style="font-size:14px">🔓</span>'
+    + '<span id="lock-text" class="ml-state ml-state-idle">主控锁空闲</span>'
+    + '<button id="lock-btn" class="ml-btn ml-btn-hold">获取</button>';
+  
+  var rbSeg = document.createElement("div");
+  rbSeg.id = "status-rb-seg";
+  rbSeg.className = "ml-seg ml-seg-rb";
+  rbSeg.style.display = "none";
+  rbSeg.innerHTML = '<span id="rb-icon" style="font-size:13px">📋</span>'
+    + '<span id="rb-text" class="ml-rb-title">runbook 空闲</span>';
+  
+  var modeSeg = document.createElement("div");
+  modeSeg.id = "status-mode-seg";
+  modeSeg.className = "ml-seg ml-seg-mode";
+  modeSeg.innerHTML = '<span id="mode-text" class="ml-mode-badge">strict</span>';
+  modeSeg.onclick = function() { window.masterLockToggleMode(); };
+  
+  bar.appendChild(lockSeg);
+  bar.appendChild(rbSeg);
+  bar.appendChild(modeSeg);
+  
+  var host = document.querySelector('.ctrl-mode-banner') || document.querySelector('.header-center') || document.body;
+  host.appendChild(bar);
+  
+  document.getElementById("lock-btn").onclick = function() { window.masterLockAction(); };
+  
   ensureRbBannerKeyframes();
   runbookBannerInit();
-  if (window.sendMsg) sendMsg({ type: "master_lock_status" });
+  masterLockRender();
+  
+  var isControl = typeof ROLE !== "undefined" && ROLE === "control";
+  if (isControl && window.sendMsg) sendMsg({ type: "master_lock_status" });
 }
+
 function masterLockRender() {
-  var bar = document.getElementById("master-lock-bar");
+  var bar = document.getElementById("unified-status-bar");
   if (!bar) return;
-  if (typeof ROLE === "undefined" || ROLE !== "control") { bar.style.display = "none"; return; }
+  
+  var isControl = typeof ROLE !== "undefined" && ROLE === "control";
+  var isDirector = typeof ROLE !== "undefined" && ROLE === "director";
+  
+  if (!isControl && !isDirector) {
+    bar.style.display = "none";
+    return;
+  }
+  
   bar.style.display = "flex";
-  var text = document.getElementById("master-lock-text");
-  var btn = document.getElementById("master-lock-btn");
-  var modeBtn = document.getElementById("master-lock-mode");
-  var h = masterLockState.holder;
-  if (h && masterLockState.selfHeld) { text.textContent = "🔒 " + h.label + "（我持锁）"; btn.textContent = "释放主控锁"; }
-  else if (h) { text.textContent = "🔒 " + h.label + " 持锁"; btn.textContent = "接管主控锁"; }
-  else { text.textContent = "🔓 主控锁空闲"; btn.textContent = "获取主控锁"; }
-  modeBtn.textContent = masterLockState.mode === "loose" ? "loose" : "strict";
-  modeBtn.style.color = masterLockState.mode === "loose" ? "#ffd60a" : "#8e98a3";
+  
+  var lockSeg = document.getElementById("status-lock-seg");
+  var modeSeg = document.getElementById("status-mode-seg");
+  
+  if (isDirector) {
+    if (lockSeg) lockSeg.style.display = "none";
+    if (modeSeg) modeSeg.style.display = "none";
+  } else {
+    if (lockSeg) lockSeg.style.display = "flex";
+    if (modeSeg) modeSeg.style.display = "flex";
+    
+    var icon = document.getElementById("lock-icon");
+    var text = document.getElementById("lock-text");
+    var btn = document.getElementById("lock-btn");
+    var modeText = document.getElementById("mode-text");
+    
+    var h = masterLockState.holder;
+    var confirmValid = masterLockConfirming && h && masterLockState.selfHeld;
+    
+    if (!confirmValid && masterLockReleaseTimer) {
+      clearTimeout(masterLockReleaseTimer);
+      masterLockReleaseTimer = null;
+      masterLockConfirming = false;
+    }
+    
+    if (confirmValid) {
+      return;
+    }
+    
+    if (h && masterLockState.selfHeld) {
+      if (icon) icon.textContent = "🔒";
+      if (text) { text.textContent = h.label + " (我持锁)"; text.className = "ml-state ml-state-self"; }
+      if (btn) {
+        btn.textContent = "释放";
+        btn.className = "ml-btn ml-btn-release";
+        btn.onclick = function() { window.masterLockAction(); };
+      }
+      bar.className = "ml-bar ml-bar-self";
+    } else if (h) {
+      if (icon) icon.textContent = "🔒";
+      if (text) { text.textContent = h.label + " 持锁"; text.className = "ml-state ml-state-other"; }
+      if (btn) {
+        btn.textContent = "接管";
+        btn.className = "ml-btn ml-btn-take";
+        btn.onclick = function() { window.masterLockAction(); };
+      }
+      bar.className = "ml-bar ml-bar-other";
+    } else {
+      if (icon) icon.textContent = "🔓";
+      if (text) { text.textContent = "主控锁空闲"; text.className = "ml-state ml-state-idle"; }
+      if (btn) {
+        btn.textContent = "获取";
+        btn.className = "ml-btn ml-btn-hold";
+        btn.onclick = function() { window.masterLockAction(); };
+      }
+      bar.className = "ml-bar";
+    }
+    
+    if (modeText) {
+      modeText.textContent = masterLockState.mode === "loose" ? "loose" : "strict";
+      modeText.style.color = masterLockState.mode === "loose" ? "#ffd60a" : "#8e98a3";
+    }
+  }
+  
+  runbookBannerRender();
 }
+
 window.masterLockAction = function() {
   if (!window.sendMsg) return;
-  if (masterLockState.holder && !masterLockState.selfHeld) sendMsg({ type: "master_lock_acquire", force: true });
-  else if (masterLockState.holder && masterLockState.selfHeld) sendMsg({ type: "master_lock_release" });
-  else sendMsg({ type: "master_lock_acquire" });
+  
+  if (masterLockState.holder && masterLockState.selfHeld) {
+    if (masterLockConfirming) {
+      clearTimeout(masterLockReleaseTimer);
+      masterLockReleaseTimer = null;
+      masterLockConfirming = false;
+      sendMsg({ type: "master_lock_release" });
+      masterLockRender();
+    } else {
+      var btn = document.getElementById("lock-btn");
+      if (btn) {
+        masterLockConfirming = true;
+        btn.innerHTML = '<span style="color:#ff6b6b">确认释放？</span> <span style="color:#8e98a3;margin-left:4px;cursor:pointer;text-decoration:underline" id="lock-cancel">取消</span>';
+        btn.style.padding = "3px 8px";
+        
+        var cancelSpan = document.getElementById("lock-cancel");
+        if (cancelSpan) {
+          cancelSpan.onclick = function(e) {
+            e.stopPropagation();
+            window.masterLockCancelReleaseConfirm();
+          };
+        }
+        
+        masterLockReleaseTimer = setTimeout(function() {
+          window.masterLockCancelReleaseConfirm();
+        }, 3000);
+      }
+    }
+  } else if (masterLockState.holder && !masterLockState.selfHeld) {
+    sendMsg({ type: "master_lock_acquire", force: true });
+  } else {
+    sendMsg({ type: "master_lock_acquire" });
+  }
 };
+
+window.masterLockCancelReleaseConfirm = function() {
+  if (masterLockReleaseTimer) {
+    clearTimeout(masterLockReleaseTimer);
+    masterLockReleaseTimer = null;
+  }
+  masterLockConfirming = false;
+  masterLockRender();
+};
+
 window.masterLockToggleMode = function() {
   if (!window.sendMsg) return;
   sendMsg({ type: "master_lock_setmode", mode: masterLockState.mode === "loose" ? "strict" : "loose" });
 };
-// ---------- P2-2: runbook banner ----------
-var runbookBannerState = { active: false, nextAction: null, autoAdvanceSec: 0, chainCount: 0, breaker: false };
+
 function runbookBannerInit() {
-  if (document.getElementById("runbook-banner")) return;
-  var bar = document.createElement("div");
-  bar.id = "runbook-banner";
-  bar.style.cssText = "display:none;align-items:center;gap:6px;background:rgba(16,20,26,0.92);border:1px solid rgba(10,132,255,0.35);border-radius:10px;padding:5px 9px;font-size:12px;box-shadow:0 2px 10px rgba(0,0,0,0.4)";
-  bar.innerHTML = '<span id="runbook-banner-icon">📋</span><span id="runbook-banner-text" style="color:#cfd4dc;white-space:nowrap">runbook 空闲</span>';
-  // v7.6.0-P1: runbook 横幅并入顶部状态栏居中（与主控锁同排），避免悬浮遮挡
-  var rbHost = document.querySelector('.ctrl-mode-banner') || document.querySelector('.header-center') || document.body;
-  rbHost.appendChild(bar);
-  runbookBannerRender();
+  var rbSeg = document.getElementById("status-rb-seg");
+  if (rbSeg) return;   // 已在 masterLockInit 三段式创建时建好，无需重复
+
+  // 兜底：状态栏未初始化时先建状态栏（runbookBannerInit 被独立调用的情况）
+  var bar = document.getElementById("unified-status-bar");
+  if (!bar) {
+    masterLockInit();
+    return;
+  }
+
+  // 极端兜底：状态栏存在但 runbook 段缺失（旧版 DOM 残留）→ 补建
+  rbSeg = document.createElement("div");
+  rbSeg.id = "status-rb-seg";
+  rbSeg.className = "ml-seg ml-seg-rb";
+  rbSeg.style.display = "none";
+  rbSeg.innerHTML = '<span id="rb-icon" style="font-size:13px">📋</span>'
+    + '<span id="rb-text" class="ml-rb-title">runbook 空闲</span>';
+
+  var modeSeg = document.getElementById("status-mode-seg");
+  if (modeSeg) {
+    bar.insertBefore(rbSeg, modeSeg);
+  } else {
+    bar.appendChild(rbSeg);
+  }
 }
+
 function runbookBannerRender() {
-  var bar = document.getElementById("runbook-banner");
-  if (!bar) return;
-  var show = (typeof ROLE !== "undefined" && (ROLE === "control" || ROLE === "director")) && !document.body.classList.contains('ctrl-mode');
-  if (!show) { bar.style.display = "none"; return; }
-  bar.style.display = "flex";
-  var text = document.getElementById("runbook-banner-text");
-  if (!text) return;
+  var rbSeg = document.getElementById("status-rb-seg");
+  if (!rbSeg) return;
+  
+  var isControl = typeof ROLE !== "undefined" && ROLE === "control";
+  var isDirector = typeof ROLE !== "undefined" && ROLE === "director";
+  var inCtrlMode = document.body.classList.contains('ctrl-mode');
+  
+  if ((!isControl && !isDirector) || inCtrlMode) {
+    rbSeg.style.display = "none";
+    return;
+  }
+  
   var curProg = localState && localState.programs ? localState.programs[localState.currentProgramIndex || 0] : null;
   var rb = curProg && curProg.runbook ? curProg.runbook : null;
   var n = (rb && rb.onEnter) ? rb.onEnter.length : 0;
+  
+  if (n === 0 && !runbookBannerState.active) {
+    rbSeg.style.display = "none";
+    return;
+  }
+  
+  rbSeg.style.display = "flex";
+  
+  var icon = document.getElementById("rb-icon");
+  var text = document.getElementById("rb-text");
+  
   var aaSec = (rb && rb.autoAdvance && rb.autoAdvanceSec) ? rb.autoAdvanceSec : 0;
   var parts = [];
+  
   if (runbookBannerState.active) {
-    parts.push("⚡ 执行中" + (runbookBannerState.nextAction ? " · 下步:" + (RUNBOOK_ACTIONS_LABEL[runbookBannerState.nextAction] || runbookBannerState.nextAction) : ""));
-    bar.style.borderColor = "rgba(255,159,10,0.6)";
-    bar.style.animation = "rbBannerPulse 1s ease-in-out infinite";
+    if (icon) icon.textContent = "⚡";
+    parts.push("执行中");
+    if (runbookBannerState.nextAction) {
+      parts.push("下步:" + (RUNBOOK_ACTIONS_LABEL[runbookBannerState.nextAction] || runbookBannerState.nextAction));
+    }
+    rbSeg.style.animation = "rbBannerPulse 1.2s ease-in-out infinite";
   } else {
-    parts.push("📋 runbook " + n + " 动作");
-    bar.style.borderColor = "rgba(10,132,255,0.35)";
-    bar.style.animation = "none";
+    if (icon) icon.textContent = "📋";
+    parts.push("runbook " + n + " 动作");
+    rbSeg.style.animation = "none";
   }
+  
   if (aaSec) parts.push("自动推进 " + aaSec + "s");
   if (runbookBannerState.breaker) parts.push("⛔ 熔断暂停");
   else if (runbookBannerState.chainCount > 0) parts.push("链×" + runbookBannerState.chainCount);
-  text.textContent = parts.join(" · ");
+  
+  if (text) text.textContent = parts.join(" · ");
 }
-function ensureRbBannerKeyframes() {
-  if (document.getElementById("rb-banner-keyframes")) return;
-  var st = document.createElement("style");
-  st.id = "rb-banner-keyframes";
-  st.textContent = "@keyframes rbBannerPulse { 0%,100% { box-shadow:0 2px 10px rgba(0,0,0,0.4); } 50% { box-shadow:0 0 14px rgba(255,159,10,0.55); } }";
-  document.head.appendChild(st);
-}
+
 function runbookBannerUpdate(data) {
   if (data) {
     runbookBannerState.active = !!data.active;
@@ -4620,9 +4807,19 @@ function runbookBannerUpdate(data) {
   }
   runbookBannerRender();
 }
-if (typeof ROLE !== "undefined" && ROLE === "control") {
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", masterLockInit);
-  else masterLockInit();
+
+function ensureRbBannerKeyframes() {
+  if (document.getElementById("rb-banner-keyframes")) return;
+  var st = document.createElement("style");
+  st.id = "rb-banner-keyframes";
+  st.textContent = "@keyframes rbBannerPulse { 0%,100% { opacity:1; } 50% { opacity:0.7; } }";
+  document.head.appendChild(st);
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", masterLockInit);
+} else {
+  masterLockInit();
 }
 
 function sendMsg(obj) {

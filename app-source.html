@@ -499,7 +499,8 @@ body[data-role] .role-badge { background:color-mix(in srgb, var(--role-accent) 1
 @keyframes viewFadeIn { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform: translateY(0); } }
 .performance-view > * { margin-bottom:20px; }
 .performance-view > *:last-child { margin-bottom:0; }
-.stage-cards {display:grid;grid-template-columns:1.4fr 1fr;gap:24px;flex:1 1 auto;min-height:0;}
+/* v7.7.2-fix: 进行中/下一节目卡片等大（原 1.4fr 1fr 导致两卡大小不一，主人 2026-09-25 反馈） */
+.stage-cards {display:grid;grid-template-columns:1fr 1fr;gap:24px;flex:1 1 auto;min-height:0;}
 .stage-card {
   background: rgba(28,28,30,0.72);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -1290,6 +1291,21 @@ body[data-role] .role-badge { background:color-mix(in srgb, var(--role-accent) 1
   .timer-section { margin-top:8px; }
   .advance-section { margin-top:8px; }
 }
+/* v7.7.2-fix: iPad / 平板（769-1024px）横竖屏均左右等宽排列 —— 信息量最大（gpt-5.5 方案）
+   iPad 竖屏 768px+ 时左右各 ≈370px，节目标题单行放得下；横屏同理，符合现场横向扫视习惯 */
+@media (min-width:769px) and (max-width:1024px) {
+  .stage-cards { grid-template-columns: 1fr 1fr; gap:18px; }
+  .stage-card { min-height:0; }
+  .mode-performance .stage-cards { grid-template-columns: 1fr 1fr !important; grid-auto-rows:1fr; }
+  .mode-performance .current-card,
+  .mode-performance .next-card { padding:18px 16px; display:flex; flex-direction:column; }
+}
+/* v7.7.2-fix: 手机横屏（≤768px 且 landscape）→ 左右等宽，避免上下排把每卡压到 190px
+   竖屏则保持单列上下等高（竖屏左右各仅 ~180px，长标题必折行，信息量反降） */
+@media (max-width:768px) and (orientation:landscape) {
+  .mode-performance .stage-cards { grid-template-columns:1fr 1fr !important; grid-auto-rows:1fr; gap:12px; }
+  .mode-performance .current-card .stage-program-name { font-size:24px; }
+}
 /* 三按钮导航 - 固定底部 */
 .nav-controls { position:fixed; bottom:0; left:0; right:0; z-index:100; display:flex; align-items:center; justify-content:center; gap:12px; padding:16px 24px; padding-bottom: calc(16px + env(safe-area-inset-bottom)); background:rgba(20,20,22,0.92); -webkit-backdrop-filter:blur(20px); backdrop-filter:blur(20px); border-top:1px solid rgba(255,255,255,0.08); box-shadow:0 -4px 20px rgba(0,0,0,0.3); }
 .nav-btn { position:relative; overflow:hidden; border-radius:14px; border:1px solid var(--stroke); cursor:pointer; background:rgba(44,44,46,0.66); -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px); color:#fff; transition: transform .12s ease, background .2s ease, box-shadow .2s ease; }
@@ -1513,7 +1529,10 @@ body.ctrl-mode #modal-screen-setting .modal-box { padding-top:calc(64px + env(sa
 .list-toggle-btn { font-size:13px; padding:6px 14px; border-radius:8px; border:1px solid var(--stroke); background:rgba(44,44,46,0.66); -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px); color:#fff; cursor:pointer; transition: background .2s ease; }
 #mobile-perf-list-toggle{display:none}
 @media(max-width:768px){
- #mobile-perf-list-toggle{display:flex !important;align-items:center;justify-content:center;position:fixed;left:16px;bottom:calc(130px + env(safe-area-inset-bottom));z-index:900;font-size:15px;padding:12px 18px;border-radius:24px;border:1px solid rgba(10,132,255,0.5);background:rgba(10,132,255,0.9);color:#fff;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.35)}
+ /* v7.7.2-fix: 底部悬浮按钮已移除 → 收纳进顶部栏 perf-list-toggle-btn
+    旧实现 position:fixed 悬浮在左下角，遮挡「下一节目」卡片内容（主人 2026-09-25 反馈）
+    现改为：手机端完全不显示悬浮按钮，统一走顶部栏「节目」图标入口 */
+ #mobile-perf-list-toggle{display:none !important}
  /* 弹窗打开时隐藏悬浮按钮，避免遮挡弹窗操作（modal z-index=1000 > 900） */
  body.modal-open #mobile-perf-list-toggle{display:none !important}
  /* 设置模式列表已直接显示，悬浮"节目列表"按钮无意义且会误开遮罩 → 隐藏 */
@@ -1540,7 +1559,13 @@ body.ctrl-mode #modal-screen-setting .modal-box { padding-top:calc(64px + env(sa
   .list-scrim { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:399; display:none; }
   body.list-open .list-scrim { display:block; }
   /* 设置模式：节目列表直接显示在主区域，单层滚动（页面整体滚，不嵌套） */
-  .panel-list { position:static; width:auto; max-height:none; height:auto; overflow:visible; transform:none; border-right:none; }
+  .panel-list { position:static; width:auto; max-height:none; height:auto; transform:none; border-right:none; }
+  /* v7.7.2-fix: 原此条设 overflow:visible，覆盖了抽屉态的 overflow-y:auto →
+     导致手机端演出模式节目列表无法滚动/拖动（主人 2026-09-25 反馈「列表没法拖动」）
+     现将 overflow 归位：抽屉态强制可滚，设置态单层滚动交给页面 */
+  .main-layout.mode-performance .panel-list,
+  .main-layout.mode-perf-list .panel-list { overflow-y:auto !important; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; }
+  .panel-list { overflow-y:auto; overflow-x:hidden; }
   /* 舞台区全屏 */
   .panel-stage { height:100%; overflow-y:auto; }
   .stage-cards { display:grid !important; grid-template-columns:1fr 1fr !important; gap:12px; }
@@ -1576,10 +1601,11 @@ body.ctrl-mode #modal-screen-setting .modal-box { padding-top:calc(64px + env(sa
   .mode-performance .panel-stage { height:100%; }
   /* v6.5.2 消除演出模式卡片下方空白：performance-view 的 padding-bottom:140px 是给桌面 nav-controls 留的，手机端已 fixed 底部 → 置0让卡片撑满 */
   .mode-performance .performance-view { padding-bottom:0; }
-  .mode-performance .stage-cards { grid-template-columns:1fr !important; gap:14px; padding:10px; }
-  .mode-performance .current-card { padding:22px 18px; }
+  .mode-performance .stage-cards { grid-template-columns:1fr !important; grid-auto-rows:1fr; gap:14px; padding:10px; }
+  /* v7.7.2-fix: 手机端两卡等高（原 padding 22px vs 16px 造成大小不一，主人 2026-09-25 反馈） */
+  .mode-performance .current-card { padding:18px 16px; display:flex; flex-direction:column; }
   .mode-performance .current-card .stage-program-name { font-size:30px; line-height:1.25; }
-  .mode-performance .next-card { padding:16px 14px; }
+  .mode-performance .next-card { padding:18px 16px; display:flex; flex-direction:column; }
   .mode-performance .nav-controls { bottom:0; padding-bottom:calc(10px + env(safe-area-inset-bottom)); gap:0; padding-left:8px; padding-right:8px; }
   /* v6.5.2 GO 按钮更醒目（演出核心操作） */
   .mode-performance .nav-go { min-height:88px; font-size:28px; letter-spacing:4px; }
@@ -2073,7 +2099,7 @@ body.mode-setup .completed-check-icon { cursor:pointer; pointer-events:auto; }
     </div>
     <div class="header-right toolbar-groups" aria-label="桌面控制工具栏">
       <span id="client-count" class="client-count"></span>
-      <div class="toolbar-group"><span class="toolbar-group-label">节目</span><button class="toolbar-command" type="button" id="perf-list-toggle-btn" onclick="togglePerfList()" title="节目列表" aria-label="节目列表" style="display:none"><svg class="icon-svg"><use href="#icon-list"/></svg><span>列表</span></button><button class="toolbar-command" type="button" id="global-setting-btn" onclick="openGlobalSetting()" title="全局通道设置" aria-label="全局通道设置"><svg class="icon-svg"><use href="#icon-settings"/></svg><span>通道</span></button><button class="toolbar-command" type="button" id="project-center-btn" onclick="openProjectCenter()" title="项目中心" aria-label="项目中心" style="display:none"><span>📁 项目</span></button></div>
+      <div class="toolbar-group"><span class="toolbar-group-label">节目</span><button class="toolbar-command" type="button" id="perf-list-toggle-btn" onclick="togglePerfList()" title="节目列表" aria-label="节目列表"><svg class="icon-svg"><use href="#icon-list"/></svg><span>列表</span></button><button class="toolbar-command" type="button" id="global-setting-btn" onclick="openGlobalSetting()" title="全局通道设置" aria-label="全局通道设置"><svg class="icon-svg"><use href="#icon-settings"/></svg><span>通道</span></button><button class="toolbar-command" type="button" id="project-center-btn" onclick="openProjectCenter()" title="项目中心" aria-label="项目中心" style="display:none"><span>📁 项目</span></button></div>
       <div class="toolbar-group"><span class="toolbar-group-label">舞台控制</span><button class="toolbar-command" type="button" id="timeline-btn" onclick="openTimelinePanel()" title="时间轴与多轨 Cue" aria-label="时间轴与多轨 Cue" style="display:none"><svg class="icon-svg"><use href="#icon-clock"/></svg><span>计时 / Cue</span></button><button class="toolbar-command" type="button" id="role-manage-btn" onclick="openRoleManage()" title="角色管理（添加负责人/岗位）" aria-label="角色管理" style="display:none"><svg class="icon-svg"><use href="#icon-cue"/></svg><span>角色</span></button><button class="toolbar-command" type="button" id="script-view-btn" onclick="toggleScriptView()" title="电子台本" aria-label="电子台本" style="display:none"><svg class="icon-svg"><use href="#icon-list"/></svg><span>台本</span></button></div>
       <div class="toolbar-group"><span class="toolbar-group-label">文件</span><button class="toolbar-command" type="button" id="import-btn" onclick="openImport()" title="导入 PDF/Word" aria-label="导入 PDF/Word" style="display:none"><svg class="icon-svg"><use href="#icon-import"/></svg><span>导入</span></button><button class="toolbar-command" type="button" id="export-channel-btn" onclick="exportChannelList()" title="导出通道清单" aria-label="导出通道清单"><svg class="icon-svg"><use href="#icon-file"/></svg><span>导出</span></button></div>
       <div class="toolbar-group"><span class="toolbar-group-label">输出</span><button class="icon-btn" type="button" id="qr-btn" onclick="showQR()" title="显示二维码" aria-label="显示二维码"><svg class="icon-svg"><use href="#icon-qr"/></svg></button><button class="icon-btn" type="button" id="download-btn" onclick="openDownloadModal()" title="下载客户端" aria-label="下载客户端"><svg class="icon-svg"><use href="#icon-download"/></svg></button><button class="icon-btn" type="button" id="screen-setting-btn" onclick="openScreenSetting()" title="提示屏设置" aria-label="提示屏设置" style="display:none"><svg class="icon-svg"><use href="#icon-display"/></svg></button></div>
@@ -5928,9 +5954,10 @@ function applyRoleVisibility() {
   // 演出模式：显示顶部节目列表切换按钮
   var listToggle = document.getElementById('perf-list-toggle-btn');
   if (listToggle) {
-    listToggle.style.display = (localState.mode === 'performance') ? '' : 'none';
+    listToggle.style.display = (localState.mode === 'performance') ? 'inline-flex' : 'none';
     listToggle.title = perfListVisible ? '隐藏列表' : '节目列表';
     listToggle.setAttribute('aria-label', listToggle.title);
+    listToggle.setAttribute('aria-pressed', perfListVisible ? 'true' : 'false');
   }
   // 导航栏：演出模式且控制端才显示
   var navCtrl = document.getElementById('nav-controls');
@@ -6302,7 +6329,17 @@ function renderAll() {
 
 // ---------- 节目列表拖拽排序 ----------
 function initProgramDragSort() {
-  if(!can('drag')) return;
+  // v7.7.2-fix: 权限不足时不再静默返回 → 明确提示，避免现场误判"页面坏了"（主人 2026-09-25 反馈）
+  if(!can('drag')) {
+    const wrap0 = document.getElementById('program-list');
+    if (wrap0) {
+      wrap0.classList.add('drag-disabled');
+      wrap0.setAttribute('title', '当前账号无拖动排序权限');
+    }
+    window.__dragSortDenied = true;
+    return;
+  }
+  window.__dragSortDenied = false;
   const wrap = document.getElementById('program-list');
   if (typeof Sortable === 'undefined') return;
   if (programSortable) programSortable.destroy();

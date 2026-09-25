@@ -1,4 +1,18 @@
 # wutai 舞台流程表 wutai-lite 变更记录
+## 版本：1.6.2（2026-09-26）手机端演出模式布局修复 + 触控热区
+- 移除手机端底部悬浮「节目列表」按钮：`#mobile-perf-list-toggle` 此前在 `@media(max-width:768px)` 下以 `position:fixed; left:16px; bottom:calc(130px + safe-area)` 悬浮于左下角，遮挡「下一节目」卡片内容；现改为手机端 `display:none !important`，职能收纳进顶部栏「节目」按钮
+- 解锁顶部栏「节目」按钮：`#perf-list-toggle-btn` 移除内联 `style="display:none"`，演出模式下可见可用，用户可从顶部栏进入节目列表
+- 为顶部栏「节目」按钮补 44px 触控热区：新增 `#perf-list-toggle-btn { min-width:44px; min-height:44px; display:inline-flex; align-items:center; gap:6px; }`（对齐 iOS HIG 触控标准），并补按下态样式 `[aria-pressed="true"]`（蓝色高亮）
+- 修复手机端「进行中 / 下一节目」两卡高矮不一：`.mode-performance .stage-cards` 补 `grid-auto-rows:1fr`
+- 统一手机端两卡内边距：current-card 由 `padding:22px 18px` 改为 `18px 16px`，next-card 由 `padding:16px 14px` 改为 `18px 16px`，两卡均加 `display:flex; flex-direction:column`；此前 padding 不一致导致两卡大小不一
+- 桌面端「进行中 / 下一节目」两卡改为等大：`.stage-cards` 由 `grid-template-columns:1.4fr 1fr` 改为 `1fr 1fr`
+- 新增 iPad / 平板适配（769-1024px）：新增媒体查询 `@media (min-width:769px) and (max-width:1024px)`，两卡左右等宽 `1fr 1fr !important`、`grid-auto-rows:1fr`、gap 18px、卡片 padding `18px 16px`
+- 新增手机横屏适配：新增媒体查询 `@media (max-width:768px) and (orientation:landscape)`，左右等宽、gap 12px、节目名 24px；竖屏保持单列上下排，竖屏左右各仅约 180px，长标题必折行，信息量反降
+- 修复拖拽权限不足时仍显示可拖拽状态：新增 `#program-list.drag-disabled .program-item { cursor:default !important; }` 与 `::after { content:none !important; }`；原实现权限不足时静默返回，用户无反馈
+- 修复手机端节目列表无法滚动：`.panel-list` 在设置模式下设 `overflow:visible`，覆盖了抽屉态的 `overflow-y:auto`，导致列表无法滚动与拖动；现移除该声明，并新增 `.main-layout.mode-performance .panel-list, .main-layout.mode-perf-list .panel-list { overflow-y:auto !important; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; }` 与 `.panel-list { overflow-y:auto; overflow-x:hidden; }`
+- 将信息页返回按钮由右下悬浮改为贴底居中：原 `right:14px; bottom:calc(72px + safe-area)` 压住列表条目的时间 / 地点文字，现为 `left:50%; transform:translateX(-50%); bottom:calc(8px + safe-area)`，padding `9px 16px`、font-size 14px、opacity .94
+- 验证：运行版 director 端 7/7 项通过，`npm test` 27/27 全绿，内联 JS 语法校验通过；四仓（pro-remote / test / nocue / lite）已同步移植这 10 处改动，其中 lite 无 Tally 面板，对应改动不适用
+
 ## 版本：1.6.1（2026-09-13）节目单 UI 修复（序号胶囊分离 + 弹窗滚动锁）
 - 同步门户运行版 https://panloveli.top:8443/wutai/ 全部功能（v7.7.1 基线）
 - 节目列表：序号徽章与时间拆成独立胶囊（.prog-time-chip），修复视觉粘连成 "116:30"

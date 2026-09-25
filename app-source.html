@@ -1624,6 +1624,16 @@ body.ctrl-mode #modal-screen-setting .modal-box { padding-top:calc(64px + env(sa
     padding-top:calc(8px + env(safe-area-inset-top));
   }
   body.exec-info-mode #list-close-btn { display:inline-block; }
+/* v7.7.2-fix: 信息页返回按钮原为右下悬浮（right:14px;bottom:72px），
+   实测压住节目列表条目的时间/地点文字（主人 2026-09-25 反馈「遮挡信息」）
+   现改为贴底条定位，不再与列表内容重叠；并缩小尺寸降低存在感 */
+body.exec-info-mode #exec-back-btn {
+  display:flex; align-items:center; gap:6px; position:fixed;
+  left:50%; transform:translateX(-50%); bottom:calc(8px + env(safe-area-inset-bottom)); z-index:850;
+  padding:9px 16px; border-radius:999px; border:1px solid var(--stroke);
+  background:var(--bg-elev-2); color:var(--ios-green); font-size:14px; font-weight:700;
+  box-shadow:0 4px 16px rgba(0,0,0,0.3); cursor:pointer; opacity:.94;
+}
   /* 信息页返回执行台按钮（悬浮右下，避开底部导航） */
   #exec-back-btn { display:none; }
   body.exec-info-mode #exec-back-btn {
@@ -1637,6 +1647,12 @@ body.ctrl-mode #modal-screen-setting .modal-box { padding-top:calc(64px + env(sa
   100% { box-shadow:0 0 0 12px rgba(255,59,48,0), 0 0 10px rgba(255,59,48,.6); }
 }
 .list-toggle-btn:hover { background:rgba(58,58,60,0.8); }
+/* v7.7.2-fix: 拖动排序被禁用时的视觉反馈（权限不足） */
+#program-list.drag-disabled .program-item { cursor:default !important; }
+#program-list.drag-disabled .program-item::after { content:none !important; }
+/* v7.7.2-fix: 顶部栏「节目」按钮 44px 触控热区（iOS HIG），收纳原底部悬浮按钮职能 */
+#perf-list-toggle-btn { min-width:44px; min-height:44px; display:inline-flex; align-items:center; gap:6px; }
+#perf-list-toggle-btn[aria-pressed="true"] { background:rgba(10,132,255,0.22); border-color:rgba(10,132,255,0.55); color:#7dbcff; }
 /* 舞台卡片可点击 */
 .stage-card { cursor:pointer; transition: transform .12s ease, box-shadow .2s ease, border-color .2s ease; position:relative; }
 .stage-card:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(0,0,0,0.3); }
